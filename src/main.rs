@@ -240,12 +240,13 @@ fn cal_count_marker(bamfile: &str, hap1_tabix: &str, hap2_tabix: &str, kmer_size
     let mut line_num = 0;
     for r_record in bam.records() {
         line_num += 1;
-        eprintln!("Processing line {}", line_num);
         let record = r_record.unwrap();
+        let read_id = convert_u82String(record.qname());
+        eprintln!("Processing line {}, {}", line_num, &read_id);
         if record.is_unmapped() {
+            prev_read_id = read_id;
             continue;
         }
-        let read_id = convert_u82String(record.qname());
 
         if prev_read_id.len() == 0 {
             prev_read_id = read_id;
@@ -254,6 +255,7 @@ fn cal_count_marker(bamfile: &str, hap1_tabix: &str, hap2_tabix: &str, kmer_size
         }
 
         if read_id != prev_read_id {
+            // eprintln!("prev_read_id, read_id, len_vec: {}, {}, {}", &prev_read_id, &read_id, &read_alignments.len());
             let t_alignments = process_read_alignments(&read_alignments, &headers, &mut hap1_tbx_reader, &mut hap2_tbx_reader, kmer_size);
             alignments.insert(prev_read_id, t_alignments);
             read_alignments = Vec::new();
@@ -483,15 +485,15 @@ fn reverse_complement(sequence: &str) -> String {
 }
 
 fn filter(alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>>) 
--> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>>  {
-    let mut new_results: HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>> = HashMap::new();
+-> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>>  {
+    let mut new_results: HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>> = HashMap::new();
     for (key, value) in alignments.iter_mut() {
         value.sort_by_key(|tuple| {
             tuple.6
         });
-        let mut prim_info: (String, i64, i64, u32, u32, String, usize, usize, usize) 
-        = (Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default());
-        let mut supp_info: Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)> = vec![]; 
+        let mut prim_info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) 
+        = (Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default(), Default::default());
+        let mut supp_info: Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)> = vec![]; 
         for tuple in value { 
             if tuple.6 == 1 {
                 let mut supp_id: isize = -1;
@@ -520,28 +522,47 @@ fn filter(alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, Stri
                             supp_cnt = t_supp_info.8 as isize;
                         }
                     }
-                    if prim_dist < supp_dist {
+                    if prim_dist <= supp_dist {
                         if prim_cnt < tuple.8.try_into().unwrap() {
-                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8);
+                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8, 1);
+                            prim_info = info;
+                        } else if prim_cnt == tuple.8.try_into().unwrap() {
+                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8, 0);
                             prim_info = info;
                         }
                     } else {
                         if supp_cnt < tuple.8.try_into().unwrap() {
-                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, 1, tuple.8);
+                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, 1, tuple.8, 1);
+                            let id = supp_id as usize;
+                            supp_info[id] = info;
+                        } else if supp_cnt == tuple.8.try_into().unwrap() {
+                            let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, 1, tuple.8, 0);
                             let id = supp_id as usize;
                             supp_info[id] = info;
                         }
                     }
                 } else {
                     if prim_cnt < tuple.8.try_into().unwrap() {
-                        let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8);
+                        let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8, 1);
                         prim_info = info;
                     }
                 }
             } else if tuple.7 == 1 {
-                supp_info.push(tuple.clone());
+                if tuple.8 == 0 {
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, 1, tuple.8, 0);
+                    supp_info.push(info);
+                } else {
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, 1, tuple.8, 1);
+                    supp_info.push(info);
+                }
             } else {
-                prim_info = tuple.clone();
+                if tuple.8 == 0 {
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8, 0);
+                    prim_info = info;
+                } else {
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (tuple.0.clone(), tuple.1, tuple.2, tuple.3, tuple.4, tuple.5.clone(), 0, tuple.7, tuple.8, 1);
+                    prim_info = info;
+                }
             }
         }
         supp_info.push(prim_info);
@@ -558,9 +579,9 @@ fn filter(alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, Stri
         print!("{}\t", key);
         for (i, tuple) in value.iter().enumerate() {
             if i != value.len() - 1 {
-                print!("{},{},{},{},{},{},{},{},{}\t", tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8);
+                print!("{},{},{},{},{},{},{},{},{},{}\t", tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9);
             } else {
-                println!("{},{},{},{},{},{},{},{},{}", tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8);
+                println!("{},{},{},{},{},{},{},{},{},{}", tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9);
             }
         }
     }
@@ -568,7 +589,7 @@ fn filter(alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, Stri
 }
 
 
-fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>>) {
+fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>>) {
     let mut bam = bam::Reader::from_path(bamfile)
         .expect(&format!("Could not open {}", bamfile));
     let header = bam::Header::from_template(bam.header());
@@ -646,7 +667,14 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
             let cigar_string: bam::record::CigarString = bam::record::CigarString::from(r.cigar().iter().cloned().collect::<Vec<_>>());
             record.set(r.qname(), Some(&cigar_string), &r.seq().as_bytes(), r.qual());
             // mapping quality
-            record.set_mapq(r.mapq());
+            if i.9 == 0 {
+                let mapq: u8 = 30;
+                record.set_mapq(mapq);
+            } else {
+                let mapq: u8 = 60;
+                record.set_mapq(mapq);
+            }
+            
             // next_reference_id
             // next_reference_start
             // template length
