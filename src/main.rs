@@ -414,7 +414,7 @@ fn process_read_alignments(read_alignments: &Vec<bam::record::Record>, headers:&
             let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
             let start: i64 = convert_u82String(chunks[1]).parse().unwrap();
             let end: i64 = convert_u82String(chunks[2]).parse().unwrap();
-            let hap_name = convert_u82String(chunks[3]);
+            //let hap_name = convert_u82String(chunks[3]);
             let strand = convert_u82String(chunks[4]);
             let seq = convert_u82String(chunks[5]);
             // println!("{}\t{}", read_strand, strand);
@@ -682,6 +682,20 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
             for aux in r.aux_iter() {
                 let (tag, value) = aux.unwrap();
                 record.push_aux(tag, value).unwrap();
+            }
+
+            // New tag: HP
+            if i.9 == 0 {
+                let aux_hp_tag = bam::record::Aux::String("Amb");
+                record.push_aux(b"HP", aux_hp_tag).unwrap();
+            } else {
+                if &reference_name[0..2] == "h1" {
+                    let aux_hp_tag = bam::record::Aux::String("HP1");
+                    record.push_aux(b"HP", aux_hp_tag).unwrap();
+                } else {
+                    let aux_hp_tag = bam::record::Aux::String("HP2");
+                    record.push_aux(b"HP", aux_hp_tag).unwrap();
+                }
             }
             out.write(&record).unwrap();
             break;
