@@ -19,8 +19,8 @@ fn main() {
     let kmer_size: u32 = 21;
     //cal_count_marker(bam_file);
     let mut alignments = cal_count_marker(bam_file, hap1_tabix, hap2_tabix, kmer_size);
-    let mut filtered_alignments = filter(&mut alignments);
-    write_bam(bam_file, out_bam, &mut filtered_alignments);
+    let filtered_alignments = filter(&mut alignments);
+    process_write_bam(bam_file, out_bam, &filtered_alignments);
 }
 
 #[allow(non_snake_case)]
@@ -36,6 +36,7 @@ fn convert_u82String(query: &[u8]) -> String {
 
 fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
     let mut cigartuples: Vec<(usize, u32)> = vec![]; 
+    /*
     if record.is_reverse() {
         for op in record.cigar().iter().rev() {
             match op {
@@ -78,47 +79,48 @@ fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
                 */
             }
         }
-    } else {
-        for op in record.cigar().iter() {
-            match op {
-                bam::record::Cigar::Match(len) => {
-                    cigartuples.push((0, *len));
-                },
-                bam::record::Cigar::Ins(len) => {
-                    cigartuples.push((1, *len));
-                },
-                bam::record::Cigar::Del(len) => {
-                    cigartuples.push((2, *len));
-                },
-                bam::record::Cigar::RefSkip(len) => {
-                    cigartuples.push((3, *len));
-                },
-                bam::record::Cigar::SoftClip(len) => {
-                    cigartuples.push((4, *len));
-                },
-                bam::record::Cigar::HardClip(len) => {
-                    cigartuples.push((5, *len));
-                },
-                bam::record::Cigar::Pad(len) => {
-                    cigartuples.push((6, *len));
-                },
-                bam::record::Cigar::Equal(len) => {
-                    cigartuples.push((7, *len));
-                },
-                bam::record::Cigar::Diff(len) => {
-                    cigartuples.push((8, *len));
-                },
-                /*
-                bam::record::Cigar::Back(len) => {
-                    cigaråtuples.push((9, len));
-                    eprintln!("The backward operation exists.");
-                }
-                
-                _ => {
-                    eprintln!("Unepected cigar.");
-                },
-                */
+    */
+    //} else {
+    for op in record.cigar().iter() {
+        match op {
+            bam::record::Cigar::Match(len) => {
+                cigartuples.push((0, *len));
+            },
+            bam::record::Cigar::Ins(len) => {
+                cigartuples.push((1, *len));
+            },
+            bam::record::Cigar::Del(len) => {
+                cigartuples.push((2, *len));
+            },
+            bam::record::Cigar::RefSkip(len) => {
+                cigartuples.push((3, *len));
+            },
+            bam::record::Cigar::SoftClip(len) => {
+                cigartuples.push((4, *len));
+            },
+            bam::record::Cigar::HardClip(len) => {
+                cigartuples.push((5, *len));
+            },
+            bam::record::Cigar::Pad(len) => {
+                cigartuples.push((6, *len));
+            },
+            bam::record::Cigar::Equal(len) => {
+                cigartuples.push((7, *len));
+            },
+            bam::record::Cigar::Diff(len) => {
+                cigartuples.push((8, *len));
+            },
+            /*
+            bam::record::Cigar::Back(len) => {
+                cigaråtuples.push((9, len));
+                eprintln!("The backward operation exists.");
             }
+            
+            _ => {
+                eprintln!("Unepected cigar.");
+            },
+            */
+            //}
         }
     }
     cigartuples
@@ -147,11 +149,14 @@ fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32) {
 }
 
 fn get_current_ref_pos(cigartuples: &Vec<(usize, u32)>, ref_start: i64, ref_end: i64, it_start: usize, it_end: usize, strand: String) -> (u32, u32) {
+    /*
     let mut out_start: u32 = if strand == "+" {
         ref_start as u32
     } else {
         ref_end as u32
     } ;
+    */
+    let mut out_start: u32 = ref_start as u32;
     let mut out_end: u32 = out_start;
     let r_start: u32 = it_start as u32;
     let r_end: u32 = it_end as u32;
@@ -180,11 +185,13 @@ fn get_current_ref_pos(cigartuples: &Vec<(usize, u32)>, ref_start: i64, ref_end:
         if read_length >= r_start {
             if !f_start {
                 if *op == 0 || *op == 7 || *op == 8 {
+                    /*
                     if strand == "-" {
                         out_end -= ref_length - (read_length - r_start);
                     } else {
-                        out_start += ref_length - (read_length - r_start);
-                    }
+                    */
+                    out_start += ref_length - (read_length - r_start);
+                    //}
                     f_start = true;
                 } else {
                     return (0, 0);
@@ -194,11 +201,13 @@ fn get_current_ref_pos(cigartuples: &Vec<(usize, u32)>, ref_start: i64, ref_end:
         if read_length >= r_end {
             if !f_end {
                 if *op == 0 || *op == 7 || *op == 8 {
+                    /*
                     if strand == "-" {
                         out_start -= ref_length - (read_length - r_end);
                     } else {
-                        out_end += ref_length - (read_length - r_end);
-                    }
+                    */
+                    out_end += ref_length - (read_length - r_end);
+                    //}
                 } else {
                     return (0, 0);
                 }
@@ -231,7 +240,7 @@ fn cal_count_marker(bamfile: &str, hap1_tabix: &str, hap2_tabix: &str, kmer_size
     }
 
 
-    let mut sequences: HashMap<String, String> = HashMap::new();
+    //let mut sequences: HashMap<String, String> = HashMap::new();
     let mut alignments: HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>> = HashMap::new();
 
     let mut read_alignments: Vec<bam::record::Record> = Vec::new();
@@ -288,7 +297,7 @@ fn cal_count_marker(bamfile: &str, hap1_tabix: &str, hap2_tabix: &str, kmer_size
     alignments
 }
 
-fn process_read_alignments(read_alignments: &Vec<bam::record::Record>, headers:&HashMap<u32, String>, hap1_tbx_reader: &mut tbx::Reader, hap2_tbx_reader: &mut tbx::Reader, kmer_size: u32) 
+fn process_read_alignments(read_alignments: &Vec<bam::record::Record>, headers: &HashMap<u32, String>, hap1_tbx_reader: &mut tbx::Reader, hap2_tbx_reader: &mut tbx::Reader, kmer_size: u32) 
 -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>
 {
     let mut records = read_alignments.clone();
@@ -300,7 +309,11 @@ fn process_read_alignments(read_alignments: &Vec<bam::record::Record>, headers:&
     let mut sequence = String::new();
     for (i, record) in records.iter().enumerate() {
         if i == 0 {
-            sequence = convert_u82String(&record.seq().as_bytes());
+            if record.is_reverse() {
+                sequence = reverse_complement(&convert_u82String(&record.seq().as_bytes()));
+            } else {
+                sequence = convert_u82String(&record.seq().as_bytes());
+            }
             // eprintln!("{}, {}, {}", read_id, record.flags(), sequence.len());
         }
         let reference_id = record.tid() as u32;
@@ -438,7 +451,11 @@ fn process_read_alignments(read_alignments: &Vec<bam::record::Record>, headers:&
         let it_end: usize = read_end.try_into().unwrap();
         let k: usize = kmer_size.try_into().unwrap();
         for i in it_start..(it_end-k+1) {
-            let slice = (&read_seq[i..(i+k)]).to_string();
+            let slice = if read_strand == "-" {
+                reverse_complement(&read_seq[i..(i+k)])
+            } else {
+                (&read_seq[i..(i+k)]).to_string()
+            };
             // eprintln!("{}\t{}\t{:?}", slice, seq, slice==seq);
             if let Some(value) = tbx_sequences.get(&slice) {
                 /*
@@ -589,12 +606,12 @@ fn filter(alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, Stri
 }
 
 
-fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>>) {
+fn process_write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>>) {
     let mut bam = bam::Reader::from_path(bamfile)
-        .expect(&format!("Could not open {}", bamfile));
+                    .expect(&format!("Could not open {}", bamfile));
     let header = bam::Header::from_template(bam.header());
     let mut out = bam::Writer::from_path(output_bam, &header, bam::Format::Bam)
-        .expect(&format!("Could not open {}", output_bam));
+                    .expect(&format!("Could not open {}", output_bam));
     
     let mut headers: HashMap<u32, String> = HashMap::new();
     for name in bam.header().target_names() {
@@ -602,13 +619,87 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
         let r_string = convert_u82String(name);
         headers.insert(r_tid, r_string);
     }
-    
+    let mut prev_read_id = String::new();
+    let mut read_alignments: Vec<bam::record::Record> = Vec::new();
+    let mut line_num = 0;
     for rd in bam.records() {
         let r = rd.unwrap();
+        line_num += 1;
+        let read_id = convert_u82String(r.qname());
+        eprintln!("Processing line {}, {}", line_num, &read_id);
         if r.is_unmapped() {
             continue;
         }
-        let read_id = convert_u82String(r.qname());
+        
+
+        if prev_read_id.len() == 0 {
+            prev_read_id = read_id;
+            read_alignments.push(r);
+            continue;
+        }
+
+        if read_id != prev_read_id {
+            write_bam(&prev_read_id, &mut out, &read_alignments, &headers, filtered_alignments);
+            read_alignments = Vec::new();
+            read_alignments.push(r);
+            prev_read_id = read_id;
+        } else {
+            read_alignments.push(r);
+        }
+    }
+    write_bam(&prev_read_id, &mut out, &read_alignments, &headers, filtered_alignments);
+}
+
+fn write_bam(read_id: &str, out: &mut bam::Writer, read_alignments: &Vec<bam::record::Record>, headers: &HashMap<u32, String>, filtered_alignments: &HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>>) {
+    
+    let mut records = read_alignments.clone();
+    records.sort_by_key(|t| {
+        t.flags()
+    });
+
+    let mut sequence = String::new();
+    let mut qual: Option<&[u8]> = None;
+    /*
+    for (i, r) in records.iter().enumerate() {
+        if i != records.len() - 1 {
+            print!("{}\t", r.flags());
+        } else {
+            println!("{}", r.flags());
+        }
+    }
+    */
+    for (i, r) in records.iter().enumerate() {
+        if i == 0 {
+            if r.is_reverse() {
+                sequence = reverse_complement(&convert_u82String(&r.seq().as_bytes()));
+            } else {
+                sequence = convert_u82String(&r.seq().as_bytes());
+            }
+            qual = Some(r.qual());
+            /*
+            if sequence.len() == 0 {
+                eprintln!("{:?}, {}, {}", r.is_reverse(), r.flags(), convert_u82String(&r.seq().as_bytes()));
+            }
+            */
+        }
+
+        let mut read_seq = String::new();
+        if r.is_secondary() {
+            if r.is_reverse() {
+                if sequence.len() != 0 {
+                    read_seq = reverse_complement(&sequence);
+                } else {
+                    eprintln!("Bad alignment: BamFile needs to be sorted");
+                }
+            } else {
+                if sequence.len() != 0 {
+                    read_seq = sequence.clone();
+                } else {
+                    eprintln!("Bad alignment: BamFile needs to be sorted");
+                }
+            }
+        }
+
         let reference_id = r.tid() as u32;
         let reference_name = headers.get(&reference_id).unwrap(); 
         let ref_start = r.pos();
@@ -620,12 +711,13 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
         };
 
 
-        let info = if let Some(value) = filtered_alignments.get(&read_id) {
+        let info = if let Some(value) = filtered_alignments.get(read_id) {
             value
         } else {
             continue;
         };
         
+
         for i in info.iter() {
             if *reference_name != i.0 {
                 continue;
@@ -647,7 +739,7 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
             record.set_pos(r.pos());
             // flag
             if r.is_reverse() {
-                if r.is_supplementary() {
+                if i.7 == 1 {
                     let f: u16 = 2064;
                     record.set_flags(f);
                 } else {
@@ -655,7 +747,7 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
                     record.set_flags(f);
                 }
             } else {
-                if r.is_supplementary() {
+                if i.7 == 1 {
                     let f: u16 = 2048;
                     record.set_flags(f);
                 } else {
@@ -665,7 +757,14 @@ fn write_bam(bamfile: &str, output_bam: &str, filtered_alignments: &mut HashMap<
             }
             // qname, cigar, query_sequence, quality
             let cigar_string: bam::record::CigarString = bam::record::CigarString::from(r.cigar().iter().cloned().collect::<Vec<_>>());
-            record.set(r.qname(), Some(&cigar_string), &r.seq().as_bytes(), r.qual());
+            if r.is_secondary() {
+                let bytes: Vec<u8> = read_seq.into_bytes();
+                if let Some(quality) = qual {
+                    record.set(r.qname(), Some(&cigar_string), &bytes, &quality);
+                }
+            } else {
+                record.set(r.qname(), Some(&cigar_string), &r.seq().as_bytes(), r.qual());
+            }
             // mapping quality
             if i.9 == 0 {
                 let mapq: u8 = 30;
