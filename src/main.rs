@@ -710,6 +710,11 @@ fn write_bam(read_id: &str, out: &mut bam::Writer, read_alignments: &Vec<bam::re
             "+"
         };
 
+        let cigartuples = get_cigartuples(&r);
+        let read_pos: (u32, u32) = get_read_position(&cigartuples);
+        let read_start = read_pos.0;
+        let read_end = read_pos.1;
+
 
         let info = if let Some(value) = filtered_alignments.get(read_id) {
             value
@@ -717,7 +722,6 @@ fn write_bam(read_id: &str, out: &mut bam::Writer, read_alignments: &Vec<bam::re
             continue;
         };
         
-
         for i in info.iter() {
             if *reference_name != i.0 {
                 continue;
@@ -729,7 +733,13 @@ fn write_bam(read_id: &str, out: &mut bam::Writer, read_alignments: &Vec<bam::re
                 continue;
             }
             if read_strand != i.5 {
-                continue
+                continue;
+            }
+            if read_start != i.3 {
+                continue;
+            }
+            if read_end != i.4 {
+                continue;
             }
 
             let mut record = bam::record::Record::new();
