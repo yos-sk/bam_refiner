@@ -1,0 +1,157 @@
+use rust_htslib::bam;
+
+pub fn reverse_complement(sequence: &str) -> String {
+    // complement
+    let complement = sequence
+        .chars()
+        .map(|c| match c {
+            'A' => 'T',
+            'C' => 'G',
+            'G' => 'C',
+            'T' => 'A',
+            _ => c,
+        })
+        .collect::<String>();
+
+    // reverse
+    let rev_comp = complement.chars().rev().collect::<String>();
+
+    rev_comp
+}
+
+#[allow(non_snake_case)]
+pub fn convert_u82String(query: &[u8]) -> String {
+    let mut converted_query = String::new();
+
+    for item in query {
+        let ch = *item as char;
+        converted_query.push(ch)
+    }
+    converted_query
+}
+
+pub fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
+    let mut cigartuples: Vec<(usize, u32)> = vec![];
+  
+    for op in record.cigar().iter() {
+        match op {
+            bam::record::Cigar::Match(len) => {
+                cigartuples.push((0, *len));
+            }
+            bam::record::Cigar::Ins(len) => {
+                cigartuples.push((1, *len));
+            }
+            bam::record::Cigar::Del(len) => {
+                cigartuples.push((2, *len));
+            }
+            bam::record::Cigar::RefSkip(len) => {
+                cigartuples.push((3, *len));
+            }
+            bam::record::Cigar::SoftClip(len) => {
+                cigartuples.push((4, *len));
+            }
+            bam::record::Cigar::HardClip(len) => {
+                cigartuples.push((5, *len));
+            }
+            bam::record::Cigar::Pad(len) => {
+                cigartuples.push((6, *len));
+            }
+            bam::record::Cigar::Equal(len) => {
+                cigartuples.push((7, *len));
+            }
+            bam::record::Cigar::Diff(len) => {
+                cigartuples.push((8, *len));
+            }
+            /*
+            bam::record::Cigar::Back(len) => {
+                cigaråtuples.push((9, len));
+                eprintln!("The backward operation exists.");
+            }
+
+            _ => {
+                eprintln!("Unepected cigar.");
+            },
+            */
+            //}
+        }
+    }
+    cigartuples
+}
+
+pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32) {
+    let mut read_start: u32 = 0;
+    let mut read_length: u32 = 0;
+
+    for (i, (op, len)) in cigartuples.iter().enumerate() {
+        if i == 0 {
+            match op {
+                4 | 5 => read_start += len,
+                _ => (),
+            }
+        }
+        match op {
+            0 | 1 | 7 | 8 => read_length += len,
+            _ => (),
+        }
+    }
+    let read_end = read_start + read_length;
+    (read_start, read_end)
+}
+
+pub fn get_current_ref_pos(
+    cigartuples: &Vec<(usize, u32)>,
+    ref_start: i64,
+    ref_end: i64,
+    it_start: usize,
+    it_end: usize,
+    strand: String,
+) -> (u32, u32) {
+    let mut out_start: u32 = ref_start as u32;
+    let mut out_end: u32 = out_start;
+    let r_start: u32 = it_start as u32;
+    let r_end: u32 = it_end as u32;
+
+    let mut read_length: u32 = 0;
+    let mut ref_length: u32 = 0;
+
+    let mut f_start = false;
+    let mut f_end = false;
+
+    for (op, len) in cigartuples.iter() {
+        match op {
+            0 | 7 | 8 => {
+                read_length += len;
+                ref_length += len;
+            }
+            1 | 4 | 5 => {
+                read_length += len;
+            }
+            2 | 3 => {
+                ref_length += len;
+            }
+            _ => (),
+        }
+
+        if read_length >= r_start {
+            if !f_start {
+                if *op == 0 || *op == 7 || *op == 8 {
+                    out_start += ref_length - (read_length - r_start);
+                    f_start = true;
+                } else {
+                    return (0, 0);
+                }
+            }
+        }
+        if read_length >= r_end {
+            if !f_end {
+                if *op == 0 || *op == 7 || *op == 8 {
+                    out_end += ref_length - (read_length - r_end);
+                } else {
+                    return (0, 0);
+                }
+                f_end = true;
+            }
+        }
+    }
+    (out_start, out_end)
+}
