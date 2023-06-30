@@ -7,14 +7,20 @@ use std::collections::HashMap;
 use std::error::Error as stdError;
 
 use marker_filter::convert_u82String;
-use marker_filter::reverse_complement;
 use marker_filter::get_cigartuples;
-use marker_filter::get_read_position;
 use marker_filter::get_current_ref_pos;
+use marker_filter::get_read_position;
+use marker_filter::reverse_complement;
 
 mod write_bam;
 
-pub fn run(input_bam: &str, output_bam: &str, hap1_tabix: &str, hap2_tabix: &str, kmer_size: u32) -> Result<(), Box<dyn stdError>> {
+pub fn run(
+    input_bam: &str,
+    output_bam: &str,
+    hap1_tabix: &str,
+    hap2_tabix: &str,
+    kmer_size: u32,
+) -> Result<(), Box<dyn stdError>> {
     let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, kmer_size);
     let filtered_alignments = filter(&mut alignments);
     write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments);
@@ -301,6 +307,7 @@ fn process_read_alignments(
             } else {
                 (&read_seq[i..(i + k)]).to_string()
             };
+            let slice = (&read_seq[i..(i + k)]).to_string();
             if let Some(value) = tbx_sequences.get(&slice) {
                 if get_current_ref_pos(
                     &cigartuples,
@@ -331,8 +338,6 @@ fn process_read_alignments(
     }
     counted_alignments
 }
-
-
 
 fn filter(
     alignments: &mut HashMap<

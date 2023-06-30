@@ -32,7 +32,7 @@ pub fn convert_u82String(query: &[u8]) -> String {
 
 pub fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
     let mut cigartuples: Vec<(usize, u32)> = vec![];
-  
+
     for op in record.cigar().iter() {
         match op {
             bam::record::Cigar::Match(len) => {
@@ -61,18 +61,17 @@ pub fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
             }
             bam::record::Cigar::Diff(len) => {
                 cigartuples.push((8, *len));
-            }
-            /*
-            bam::record::Cigar::Back(len) => {
-                cigaråtuples.push((9, len));
-                eprintln!("The backward operation exists.");
-            }
+            } /*
+              bam::record::Cigar::Back(len) => {
+                  cigaråtuples.push((9, len));
+                  eprintln!("The backward operation exists.");
+              }
 
-            _ => {
-                eprintln!("Unepected cigar.");
-            },
-            */
-            //}
+              _ => {
+                  eprintln!("Unepected cigar.");
+              },
+              */
+              //}
         }
     }
     cigartuples

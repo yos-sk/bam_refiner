@@ -3,27 +3,24 @@ use std::process;
 
 mod filter;
 
-
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Arguments {
-    #[arg(short='i', long)]
+    #[arg(short = 'i', long)]
     input_bam: String,
 
-    #[arg(short='o', long)]
+    #[arg(short = 'o', long)]
     output_bam: String,
 
-    #[arg(short='t', long)]
+    #[arg(short = 't', long)]
     hap1_tabix: String,
 
-    #[arg(short='u', long)]
+    #[arg(short = 'u', long)]
     hap2_tabix: String,
 
-    #[arg(short='k', long)]
+    #[arg(short = 'k', long)]
     kmer_size: u32,
 }
-
-
 
 fn main() {
     let arguments = Arguments::parse();
