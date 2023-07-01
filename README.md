@@ -1,6 +1,12 @@
 # Marker_filter
 Filter alignments by unique kmers
 
+## Dependencies
+- clap 4.3.9
+- rust_htslib 0.43.0
+
+I have not tried other versions of rust_htslib.
+
 ## Install 
 ```
 git clone https://github.com/yos-sk/marker_filter.git
