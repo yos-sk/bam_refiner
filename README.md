@@ -2,7 +2,7 @@
 Filter alignments by unique kmers
 
 ## Dependencies
-- clap 4.3.9
+- clap 4.3.10
 - rust_htslib 0.43.0
 
 I have not tried other versions of rust_htslib.
