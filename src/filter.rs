@@ -65,7 +65,6 @@ fn cal_count_marker(
         let read_id = convert_u82String(record.qname());
         eprintln!("Processing line {}, {}", line_num, &read_id);
         if record.is_unmapped() {
-            // prev_read_id = read_id;
             continue;
         }
 
