@@ -306,7 +306,7 @@ fn process_read_alignments(
             } else {
                 (&read_seq[i..(i + k)]).to_string()
             };
-            let slice = (&read_seq[i..(i + k)]).to_string();
+            // let slice = (&read_seq[i..(i + k)]).to_string();
             if let Some(value) = tbx_sequences.get(&slice) {
                 if get_current_ref_pos(
                     &cigartuples,

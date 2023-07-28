@@ -4,7 +4,7 @@ use std::process;
 mod filter;
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author = "Yoshitaka Sakamoto", version = "0.3.0", about = "Filter alignments by unique kmers.", long_about = None)]
 struct Arguments {
     #[arg(short = 'i', long)]
     input_bam: String,
