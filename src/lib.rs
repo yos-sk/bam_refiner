@@ -77,8 +77,9 @@ pub fn get_cigartuples(record: &bam::Record) -> Vec<(usize, u32)> {
     cigartuples
 }
 
-pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32) {
+pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32, u32) {
     let mut read_start: u32 = 0;
+    let mut read_end: u32 = 0;
     let mut read_length: u32 = 0;
 
     for (i, (op, len)) in cigartuples.iter().enumerate() {
@@ -92,9 +93,15 @@ pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32) {
             0 | 1 | 7 | 8 => read_length += len,
             _ => (),
         }
+        if i == cigartuples.len() - 1 {
+            read_end = read_start + read_length;
+            match op {
+                4 | 5 => read_length += len,
+                _ => (),
+            }
+        }
     }
-    let read_end = read_start + read_length;
-    (read_start, read_end)
+    (read_start, read_end, read_start + read_length)
 }
 
 pub fn get_current_ref_pos(

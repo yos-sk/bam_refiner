@@ -124,6 +124,7 @@ fn cal_count_marker(
     alignments
 }
 
+
 fn process_read_alignments(
     read_alignments: &Vec<bam::record::Record>,
     headers: &HashMap<u32, String>,
@@ -178,10 +179,26 @@ fn process_read_alignments(
         let is_sec: usize = if record.is_secondary() { 1 } else { 0 };
 
         let cigartuples = get_cigartuples(&record);
-        let read_pos: (u32, u32) = get_read_position(&cigartuples);
+        let read_pos: (u32, u32, u32) = get_read_position(&cigartuples);
         let read_start = read_pos.0;
         let read_end = read_pos.1;
+        let r_read_length = read_pos.2;
+        let r_read_start = if read_strand == "+" {
+            read_start
+        } else {
+            r_read_length - read_end
+        };
+        let r_read_end = if read_strand == "+" {
+            read_end
+        } else {
+            r_read_length - read_start
+        };
         let read_length = read_end - read_start;
+        if reference_name == "h2tg000046l" {
+            if ref_start == 18025761 && ref_end == 18033661 {
+                eprintln!("{} {} {}", read_start, read_end, r_read_length);
+            }
+        }
 
         let mut kmer_cnt: usize = 0;
 
@@ -195,8 +212,8 @@ fn process_read_alignments(
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
-                        read_start,
-                        read_end,
+                        r_read_start,
+                        r_read_end,
                         read_strand.to_string(),
                         is_sec,
                         is_supp,
@@ -217,8 +234,8 @@ fn process_read_alignments(
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
-                        read_start,
-                        read_end,
+                        r_read_start,
+                        r_read_end,
                         read_strand.to_string(),
                         is_sec,
                         is_supp,
@@ -237,8 +254,8 @@ fn process_read_alignments(
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
-                        read_start,
-                        read_end,
+                        r_read_start,
+                        r_read_end,
                         read_strand.to_string(),
                         is_sec,
                         is_supp,
@@ -259,8 +276,8 @@ fn process_read_alignments(
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
-                        read_start,
-                        read_end,
+                        r_read_start,
+                        r_read_end,
                         read_strand.to_string(),
                         is_sec,
                         is_supp,
@@ -326,8 +343,8 @@ fn process_read_alignments(
             reference_name.to_string(),
             ref_start,
             ref_end,
-            read_start,
-            read_end,
+            r_read_start,
+            r_read_end,
             read_strand.to_string(),
             is_sec,
             is_supp,
@@ -427,7 +444,7 @@ fn filter(
                     for (i, t_supp_info) in supp_info.iter().enumerate() {
                         let s_diff_start = t_supp_info.3 as isize - tuple.3 as isize;
                         let s_diff_end = t_supp_info.4 as isize - tuple.4 as isize;
-                        let t_supp_dist = s_diff_start + s_diff_end;
+                        let t_supp_dist = s_diff_start.abs() + s_diff_end.abs();
                         if supp_dist == -1 {
                             supp_dist = t_supp_dist;
                             supp_id = i as isize;
@@ -438,6 +455,10 @@ fn filter(
                             supp_cnt = t_supp_info.8 as isize;
                         }
                     }
+                    /*
+                    if key == "m64288_220501_014302/165611145/ccs" {
+                        eprintln!("Secondary dist: {} {}", prim_dist, supp_dist);
+                    }*/
                     if prim_dist <= supp_dist {
                         if prim_cnt < tuple.8.try_into().unwrap() {
                             let info: (
@@ -477,15 +498,15 @@ fn filter(
                                 usize,
                                 usize,
                             ) = (
-                                tuple.0.clone(),
-                                tuple.1,
-                                tuple.2,
-                                tuple.3,
-                                tuple.4,
-                                tuple.5.clone(),
+                                prim_info.0.clone(),
+                                prim_info.1,
+                                prim_info.2,
+                                prim_info.3,
+                                prim_info.4,
+                                prim_info.5.clone(),
                                 0,
-                                tuple.7,
-                                tuple.8,
+                                prim_info.7,
+                                prim_info.8,
                                 0,
                             );
                             prim_info = info;
@@ -518,6 +539,7 @@ fn filter(
                             let id = supp_id as usize;
                             supp_info[id] = info;
                         } else if supp_cnt == tuple.8.try_into().unwrap() {
+                            let id = supp_id as usize;
                             let info: (
                                 String,
                                 i64,
@@ -530,18 +552,17 @@ fn filter(
                                 usize,
                                 usize,
                             ) = (
-                                tuple.0.clone(),
-                                tuple.1,
-                                tuple.2,
-                                tuple.3,
-                                tuple.4,
-                                tuple.5.clone(),
+                                supp_info[id].0.clone(),
+                                supp_info[id].1,
+                                supp_info[id].2,
+                                supp_info[id].3,
+                                supp_info[id].4,
+                                supp_info[id].5.clone(),
                                 0,
                                 1,
-                                tuple.8,
+                                supp_info[id].8,
                                 0,
                             );
-                            let id = supp_id as usize;
                             supp_info[id] = info;
                         }
                     }

@@ -139,9 +139,17 @@ fn write_bam(
         let read_strand = if r.is_reverse() { "-" } else { "+" };
 
         let cigartuples = get_cigartuples(&r);
-        let read_pos: (u32, u32) = get_read_position(&cigartuples);
-        let read_start = read_pos.0;
-        let read_end = read_pos.1;
+        let read_pos: (u32, u32, u32) = get_read_position(&cigartuples);
+        let read_start = if read_strand == "+" {
+            read_pos.0
+        } else {
+            read_pos.2 - read_pos.1
+        };
+        let read_end = if read_strand == "+" {
+            read_pos.1
+        } else {
+            read_pos.2 - read_pos.0
+        };
 
         let info = if let Some(value) = filtered_alignments.get(read_id) {
             value
