@@ -6,11 +6,11 @@ use rust_htslib::tpool::Error;
 use std::collections::HashMap;
 use std::error::Error as stdError;
 
-use marker_filter::convert_u82String;
-use marker_filter::get_cigartuples;
-use marker_filter::get_current_ref_pos;
-use marker_filter::get_read_position;
-use marker_filter::reverse_complement;
+use bam_refiner::convert_u82String;
+use bam_refiner::get_cigartuples;
+use bam_refiner::get_current_ref_pos;
+use bam_refiner::get_read_position;
+use bam_refiner::reverse_complement;
 
 mod write_bam;
 

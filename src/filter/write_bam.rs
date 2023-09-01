@@ -2,10 +2,10 @@ use rust_htslib::bam;
 use rust_htslib::bam::Read;
 use std::collections::HashMap;
 
-use marker_filter::convert_u82String;
-use marker_filter::get_cigartuples;
-use marker_filter::get_read_position;
-use marker_filter::reverse_complement;
+use bam_refiner::convert_u82String;
+use bam_refiner::get_cigartuples;
+use bam_refiner::get_read_position;
+use bam_refiner::reverse_complement;
 
 pub fn process_write_bam(
     bamfile: &str,
