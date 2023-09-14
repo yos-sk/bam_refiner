@@ -19,11 +19,10 @@ mod write_bam;
 pub fn run(
     input_bam: &str,
     output_bam: &str,
-    hap1_tabix: &str,
-    hap2_tabix: &str,
+    ref_tabix: &str,
     kmer_size: u32,
 ) -> Result<(), Box<dyn stdError>> {
-    let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, kmer_size);
+    let mut alignments = cal_count_marker(input_bam, ref_tabix, kmer_size);
     let filtered_alignments = filter(&mut alignments);
     write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments);
     Ok(())
@@ -31,15 +30,11 @@ pub fn run(
 
 fn cal_count_marker(
     bamfile: &str,
-    hap1_tabix: &str,
-    hap2_tabix: &str,
+    ref_tabix: &str,
     kmer_size: u32,
 ) -> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>> {
-    let mut hap1_tbx_reader =
-        tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
-
-    let mut hap2_tbx_reader =
-        tbx::Reader::from_path(hap2_tabix).expect(&format!("Could not open {}", hap2_tabix));
+    let mut ref_tbx_reader =
+        tbx::Reader::from_path(ref_tabix).expect(&format!("Could not open {}", ref_tabix));
 
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
 
@@ -80,8 +75,7 @@ fn cal_count_marker(
             let t_alignments = process_read_alignments(
                 &read_alignments,
                 &headers,
-                &mut hap1_tbx_reader,
-                &mut hap2_tbx_reader,
+                &mut ref_tbx_reader,
                 kmer_size,
             );
             alignments.insert(prev_read_id, t_alignments);
@@ -95,8 +89,7 @@ fn cal_count_marker(
     let t_alignments = process_read_alignments(
         &read_alignments,
         &headers,
-        &mut hap1_tbx_reader,
-        &mut hap2_tbx_reader,
+        &mut ref_tbx_reader,
         kmer_size,
     );
     alignments.insert(prev_read_id, t_alignments);
@@ -130,8 +123,7 @@ fn cal_count_marker(
 fn process_read_alignments(
     read_alignments: &Vec<bam::record::Record>,
     headers: &HashMap<u32, String>,
-    hap1_tbx_reader: &mut tbx::Reader,
-    hap2_tbx_reader: &mut tbx::Reader,
+    ref_tbx_reader: &mut tbx::Reader,
     kmer_size: u32,
 ) -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)> {
     let mut records = read_alignments.clone();
@@ -205,95 +197,49 @@ fn process_read_alignments(
         let mut kmer_cnt: usize = 0;
 
         let delimiter: u8 = 9; // '\t' for ASCII code
-        let mut tbx_reader = &mut *hap1_tbx_reader;
-        if &reference_name[0..2] == "h1" {
-            let tid = match tbx_reader.tid(reference_name) {
-                Ok(tid) => tid,
-                Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                    );
-                    counted_alignments.push(info);
-                    continue;
-                }
-            };
-            let result: Result<(), Error> =
-                tbx_reader.fetch(tid as u64, ref_start as u64, ref_end as u64);
-            match result {
-                Ok(_) => {
-                    ();
-                }
-                Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                    );
-                    counted_alignments.push(info);
-                    continue;
-                }
+        let tid = match ref_tbx_reader.tid(reference_name) {
+            Ok(tid) => tid,
+            Err(_) => {
+                let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    reference_name.to_string(),
+                    ref_start,
+                    ref_end,
+                    r_read_start,
+                    r_read_end,
+                    read_strand.to_string(),
+                    is_sec,
+                    is_supp,
+                    kmer_cnt,
+                );
+                counted_alignments.push(info);
+                continue;
             }
-        } else {
-            tbx_reader = hap2_tbx_reader;
-            let tid = match tbx_reader.tid(reference_name) {
-                Ok(tid) => tid,
-                Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                    );
-                    counted_alignments.push(info);
-                    continue;
-                }
-            };
-            let result: Result<(), Error> =
-                tbx_reader.fetch(tid as u64, ref_start as u64, ref_end as u64);
-            match result {
-                Ok(_) => {
-                    ();
-                }
-                Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                    );
-                    // println!("{} {}", read_id, kmer_cnt);
-                    counted_alignments.push(info);
-                    continue;
-                }
+        };
+        let result: Result<(), Error> =
+            ref_tbx_reader.fetch(tid as u64, ref_start as u64, ref_end as u64);
+        match result {
+            Ok(_) => {
+                ();
+            }
+            Err(_) => {
+                let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    reference_name.to_string(),
+                    ref_start,
+                    ref_end,
+                    r_read_start,
+                    r_read_end,
+                    read_strand.to_string(),
+                    is_sec,
+                    is_supp,
+                    kmer_cnt,
+                );
+                counted_alignments.push(info);
+                continue;
             }
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        for tbx_record in tbx_reader.records() {
+        for tbx_record in ref_tbx_reader.records() {
             let in_record = tbx_record.unwrap();
             let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
             let start: i64 = convert_u82String(chunks[1]).parse().unwrap();

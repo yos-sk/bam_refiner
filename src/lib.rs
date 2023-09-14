@@ -1,4 +1,5 @@
 use rust_htslib::bam;
+use std::collections::HashMap;
 
 pub fn reverse_complement(sequence: &str) -> String {
     // complement
@@ -160,4 +161,396 @@ pub fn get_current_ref_pos(
         }
     }
     (out_start, out_end)
+}
+
+pub fn filter(
+    alignments: &mut HashMap<
+        String,
+        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>,
+    >,
+) -> HashMap<
+    String,
+    Vec<(
+        String,
+        i64,
+        i64,
+        u32,
+        u32,
+        String,
+        usize,
+        usize,
+        usize,
+        usize,
+    )>,
+> {
+    let mut new_results: HashMap<
+        String,
+        Vec<(
+            String,
+            i64,
+            i64,
+            u32,
+            u32,
+            String,
+            usize,
+            usize,
+            usize,
+            usize,
+        )>,
+    > = HashMap::new();
+    for (key, value) in alignments.iter_mut() {
+        value.sort_by_key(|tuple| tuple.6);
+        let mut prim_info: (
+            String,
+            i64,
+            i64,
+            u32,
+            u32,
+            String,
+            usize,
+            usize,
+            usize,
+            usize,
+        ) = (
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        let mut supp_info: Vec<(
+            String,
+            i64,
+            i64,
+            u32,
+            u32,
+            String,
+            usize,
+            usize,
+            usize,
+            usize,
+        )> = vec![];
+        for tuple in value {
+            if tuple.6 == 1 {
+                let mut supp_id: isize = -1;
+                let mut supp_dist: isize = -1;
+                let mut supp_cnt: isize = -1;
+                let mut prim_dist: isize = -1;
+                let mut prim_cnt: isize = -1;
+                if prim_info.0 != String::default() {
+                    let diff_start = prim_info.3 as isize - tuple.3 as isize;
+                    let diff_end = prim_info.4 as isize - tuple.4 as isize;
+                    prim_dist = diff_start.abs() + diff_end.abs();
+                    prim_cnt = prim_info.8 as isize;
+                }
+                if !supp_info.is_empty() {
+                    for (i, t_supp_info) in supp_info.iter().enumerate() {
+                        let s_diff_start = t_supp_info.3 as isize - tuple.3 as isize;
+                        let s_diff_end = t_supp_info.4 as isize - tuple.4 as isize;
+                        let t_supp_dist = s_diff_start.abs() + s_diff_end.abs();
+                        if supp_dist == -1 {
+                            supp_dist = t_supp_dist;
+                            supp_id = i as isize;
+                            supp_cnt = t_supp_info.8 as isize;
+                        } else if supp_dist > t_supp_dist {
+                            supp_dist = t_supp_dist;
+                            supp_id = i as isize;
+                            supp_cnt = t_supp_info.8 as isize;
+                        }
+                    }
+                    /*
+                    if key == "m64288_220501_014302/165611145/ccs" {
+                        eprintln!("Secondary dist: {} {}", prim_dist, supp_dist);
+                    }*/
+                    if prim_dist <= supp_dist {
+                        if prim_cnt < tuple.8.try_into().unwrap() {
+                            let info: (
+                                String,
+                                i64,
+                                i64,
+                                u32,
+                                u32,
+                                String,
+                                usize,
+                                usize,
+                                usize,
+                                usize,
+                            ) = (
+                                tuple.0.clone(),
+                                tuple.1,
+                                tuple.2,
+                                tuple.3,
+                                tuple.4,
+                                tuple.5.clone(),
+                                0,
+                                tuple.7,
+                                tuple.8,
+                                1,
+                            );
+                            prim_info = info;
+                        } else if prim_cnt == tuple.8.try_into().unwrap() {
+                            let info: (
+                                String,
+                                i64,
+                                i64,
+                                u32,
+                                u32,
+                                String,
+                                usize,
+                                usize,
+                                usize,
+                                usize,
+                            ) = (
+                                prim_info.0.clone(),
+                                prim_info.1,
+                                prim_info.2,
+                                prim_info.3,
+                                prim_info.4,
+                                prim_info.5.clone(),
+                                0,
+                                prim_info.7,
+                                prim_info.8,
+                                0,
+                            );
+                            prim_info = info;
+                        }
+                    } else {
+                        if supp_cnt < tuple.8.try_into().unwrap() {
+                            let info: (
+                                String,
+                                i64,
+                                i64,
+                                u32,
+                                u32,
+                                String,
+                                usize,
+                                usize,
+                                usize,
+                                usize,
+                            ) = (
+                                tuple.0.clone(),
+                                tuple.1,
+                                tuple.2,
+                                tuple.3,
+                                tuple.4,
+                                tuple.5.clone(),
+                                0,
+                                1,
+                                tuple.8,
+                                1,
+                            );
+                            let id = supp_id as usize;
+                            supp_info[id] = info;
+                        } else if supp_cnt == tuple.8.try_into().unwrap() {
+                            let id = supp_id as usize;
+                            let info: (
+                                String,
+                                i64,
+                                i64,
+                                u32,
+                                u32,
+                                String,
+                                usize,
+                                usize,
+                                usize,
+                                usize,
+                            ) = (
+                                supp_info[id].0.clone(),
+                                supp_info[id].1,
+                                supp_info[id].2,
+                                supp_info[id].3,
+                                supp_info[id].4,
+                                supp_info[id].5.clone(),
+                                0,
+                                1,
+                                supp_info[id].8,
+                                0,
+                            );
+                            supp_info[id] = info;
+                        }
+                    }
+                } else {
+                    if prim_cnt < tuple.8.try_into().unwrap() {
+                        let info: (
+                            String,
+                            i64,
+                            i64,
+                            u32,
+                            u32,
+                            String,
+                            usize,
+                            usize,
+                            usize,
+                            usize,
+                        ) = (
+                            tuple.0.clone(),
+                            tuple.1,
+                            tuple.2,
+                            tuple.3,
+                            tuple.4,
+                            tuple.5.clone(),
+                            0,
+                            tuple.7,
+                            tuple.8,
+                            1,
+                        );
+                        prim_info = info;
+                    }
+                }
+            } else if tuple.7 == 1 {
+                if tuple.8 == 0 {
+                    let info: (
+                        String,
+                        i64,
+                        i64,
+                        u32,
+                        u32,
+                        String,
+                        usize,
+                        usize,
+                        usize,
+                        usize,
+                    ) = (
+                        tuple.0.clone(),
+                        tuple.1,
+                        tuple.2,
+                        tuple.3,
+                        tuple.4,
+                        tuple.5.clone(),
+                        0,
+                        1,
+                        tuple.8,
+                        0,
+                    );
+                    supp_info.push(info);
+                } else {
+                    let info: (
+                        String,
+                        i64,
+                        i64,
+                        u32,
+                        u32,
+                        String,
+                        usize,
+                        usize,
+                        usize,
+                        usize,
+                    ) = (
+                        tuple.0.clone(),
+                        tuple.1,
+                        tuple.2,
+                        tuple.3,
+                        tuple.4,
+                        tuple.5.clone(),
+                        0,
+                        1,
+                        tuple.8,
+                        1,
+                    );
+                    supp_info.push(info);
+                }
+            } else {
+                if tuple.8 == 0 {
+                    let info: (
+                        String,
+                        i64,
+                        i64,
+                        u32,
+                        u32,
+                        String,
+                        usize,
+                        usize,
+                        usize,
+                        usize,
+                    ) = (
+                        tuple.0.clone(),
+                        tuple.1,
+                        tuple.2,
+                        tuple.3,
+                        tuple.4,
+                        tuple.5.clone(),
+                        0,
+                        tuple.7,
+                        tuple.8,
+                        0,
+                    );
+                    prim_info = info;
+                } else {
+                    let info: (
+                        String,
+                        i64,
+                        i64,
+                        u32,
+                        u32,
+                        String,
+                        usize,
+                        usize,
+                        usize,
+                        usize,
+                    ) = (
+                        tuple.0.clone(),
+                        tuple.1,
+                        tuple.2,
+                        tuple.3,
+                        tuple.4,
+                        tuple.5.clone(),
+                        0,
+                        tuple.7,
+                        tuple.8,
+                        1,
+                    );
+                    prim_info = info;
+                }
+            }
+        }
+        supp_info.push(prim_info);
+        new_results.insert(key.to_string(), supp_info);
+    }
+
+    for (key, value) in new_results.iter_mut() {
+        value.sort_by(|t1, t2| {
+            let key_a = (t1.3 as isize, -(t1.4 as isize));
+            let key_b = (t2.3 as isize, -(t2.4 as isize));
+            key_a.cmp(&key_b)
+        });
+
+        print!("{}\t", key);
+        for (i, tuple) in value.iter().enumerate() {
+            if i != value.len() - 1 {
+                print!(
+                    "{},{},{},{},{},{},{},{},{},{}\t",
+                    tuple.0,
+                    tuple.1,
+                    tuple.2,
+                    tuple.3,
+                    tuple.4,
+                    tuple.5,
+                    tuple.6,
+                    tuple.7,
+                    tuple.8,
+                    tuple.9
+                );
+            } else {
+                println!(
+                    "{},{},{},{},{},{},{},{},{},{}",
+                    tuple.0,
+                    tuple.1,
+                    tuple.2,
+                    tuple.3,
+                    tuple.4,
+                    tuple.5,
+                    tuple.6,
+                    tuple.7,
+                    tuple.8,
+                    tuple.9
+                );
+            }
+        }
+    }
+    new_results
 }
