@@ -188,12 +188,13 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
+        /*
         if reference_name == "h2tg000046l" {
             if ref_start == 18025761 && ref_end == 18033661 {
                 eprintln!("{} {} {}", read_start, read_end, r_read_length);
             }
         }
-
+        */
         let mut kmer_cnt: usize = 0;
 
         let delimiter: u8 = 9; // '\t' for ASCII code
@@ -242,6 +243,7 @@ fn process_read_alignments(
         for tbx_record in ref_tbx_reader.records() {
             let in_record = tbx_record.unwrap();
             let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
+            //eprintln!("{:?}", in_record);
             let start: i64 = convert_u82String(chunks[1]).parse().unwrap();
             let end: i64 = convert_u82String(chunks[2]).parse().unwrap();
             let strand = convert_u82String(chunks[4]);

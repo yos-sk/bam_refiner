@@ -196,11 +196,13 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
+        /*
         if reference_name == "h2tg000046l" {
             if ref_start == 18025761 && ref_end == 18033661 {
                 eprintln!("{} {} {}", read_start, read_end, r_read_length);
             }
         }
+        */
 
         let mut kmer_cnt: usize = 0;
 
