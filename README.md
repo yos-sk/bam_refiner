@@ -18,6 +18,7 @@ cargo build --release
 ### Step 1: Diploid genome assembly by Hifiasm (Verkko)
 
 ### Step2: Extract haplotype-specific unique k-mer
+Please use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) for searching kmer positions.
 
 ```
 for hap in hap1 hap2
@@ -48,7 +49,7 @@ done
 ```
 
 ## Usage
-Please split the BAM file using [split_bam] (https://github.com/yos-sk/split_bam.git) if necessary.
+Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.
 
 ```
 ./target/release/bam_refiner \
