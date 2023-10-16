@@ -60,3 +60,5 @@ Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.
     --kmer-size 21 \
     1>output.tsv 2>log
 ```
+
+If you want to use bam_refiner for the alignment data to the exisitng reference genome (e.g. GRCh38 or CHM13), plase try single_mode branch.
