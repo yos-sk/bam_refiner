@@ -194,17 +194,20 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
+        /*
         if reference_name == "h2tg000046l" {
             if ref_start == 18025761 && ref_end == 18033661 {
                 eprintln!("{} {} {}", read_start, read_end, r_read_length);
             }
         }
+        */
 
         let mut kmer_cnt: usize = 0;
 
         let delimiter: u8 = 9; // '\t' for ASCII code
         let mut tbx_reader = &mut *hap1_tbx_reader;
-        if &reference_name[0..2] == "h1" {
+        // Take care of hifiasm and verkko cases.
+        if &reference_name[0..2] == "h1" || &reference_name[0..10] == "haplotype1" {
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {

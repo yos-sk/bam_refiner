@@ -36,6 +36,3 @@ fn main() {
     }
 }
 
-//TODO: check output_bam, generate test dataset
-// 1. Each read has only one primary alignment
-// 2. Each read deosn't have any secondary alignment
