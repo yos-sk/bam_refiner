@@ -48,7 +48,7 @@ do
     tabix -p bed ${hap}_cnt10_kmerposition.bed.gz
 done
 ```
-### Step3 Align sequencing reads to the diploid genome assembly constructed in Step1
+### Step3: Align sequencing reads to the diploid genome assembly constructed in Step1
 You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http://www.htslib.org) for alignment.\
 You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
 
