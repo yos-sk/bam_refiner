@@ -17,7 +17,7 @@ cargo build --release
 ## Preparation
 ### Step 1: Diploid genome assembly by Hifiasm (Verkko)
 
-### Step2: Extract haplotype-specific unique k-mer
+### Step 2: Extract haplotype-specific unique k-mer
 You can use [meryl](https://github.com/marbl/meryl.git) to count kmers.\
 You can also use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) to search kmer positions. 
 
@@ -48,9 +48,13 @@ do
     tabix -p bed ${hap}_cnt10_kmerposition.bed.gz
 done
 ```
+### Step 3: Align sequencing reads to the diploid genome assembly constructed in Step 1
+You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http://www.htslib.org) for alignment.\
+You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
+
 
 ## Usage
-Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.
+Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.\
 
 ```
 ./target/release/bam_refiner \
