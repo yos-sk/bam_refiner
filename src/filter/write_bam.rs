@@ -236,15 +236,18 @@ fn write_bam(
 
             // New tag: HP
             if i.9 == 0 {
-                let aux_hp_tag = bam::record::Aux::String("Amb");
+                // let aux_hp_tag = bam::record::Aux::String("Amb");
+                let aux_hp_tag = bam::record::Aux::U8(0);
                 record.push_aux(b"HP", aux_hp_tag).unwrap();
             } else {
                 // Take care of hifiasm and verkko cases.
                 if &reference_name[0..2] == "h1" || &reference_name[0..10] == "haplotype1"  {
-                    let aux_hp_tag = bam::record::Aux::String("HP1");
+                    // let aux_hp_tag = bam::record::Aux::String("HP1");
+                    let aux_hp_tag = bam::record::Aux::U8(1);
                     record.push_aux(b"HP", aux_hp_tag).unwrap();
                 } else {
-                    let aux_hp_tag = bam::record::Aux::String("HP2");
+                    // let aux_hp_tag = bam::record::Aux::String("HP2");
+                    let aux_hp_tag = bam::record::Aux::U8(2);
                     record.push_aux(b"HP", aux_hp_tag).unwrap();
                 }
             }
