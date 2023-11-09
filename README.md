@@ -15,7 +15,8 @@ cargo build --release
 ```
 
 ## Preparation
-### Step 1: Diploid genome assembly by Hifiasm (Verkko)
+### Step 1: Diploid genome assembly
+You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](https://github.com/marbl/verkko.git) to perform diploid genome assembly.
 
 ### Step 2: Extract haplotype-specific unique k-mer
 You can use [meryl](https://github.com/marbl/meryl.git) to count kmers.\
@@ -52,9 +53,25 @@ done
 You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http://www.htslib.org) for alignment.\
 You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
 
+```
+cat *.haplotype1.fa *.haplotype2.fa > reference.fa
+minimap2 -t 16 -ax asm10 reference.fa input.fastq | samtools view --Shb > output.unsorted
+samtools sort -@ 16 -m 2G -n output.unsorted -o output.bam
+samtools index output.bam
+```
+
+### Step 4 (Optional): Split the BAM file for the array job of bam_refiner
+Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.
+```
+SIZE=`${path_to_split_bam}/split_bam size --input-file ${INPUT_BAM}`
+split_bam split \
+    --input-file output.bam \
+    --output-dir ${OUTPUT_DIR} \
+    --input-size ${SIZE} \
+    --num-split 8
+```
 
 ## Usage
-Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.\
 
 ```
 ./target/release/bam_refiner \
