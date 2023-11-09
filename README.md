@@ -25,7 +25,7 @@ You can also use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) to sea
 ```
 for hap in hap1 hap2
 do
-    meryl count k=21 threads=16 ${hap}.contig.fa output ${hap}.meryl
+    meryl count k=21 threads=16 ${hap}_contig.fa output ${hap}.meryl
 done
 
 meryl difference hap1.meryl hap2.meryl output hap1.uniq.meryl
@@ -54,7 +54,7 @@ You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http:
 You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
 
 ```
-cat *.haplotype1.fa *.haplotype2.fa > reference.fa
+cat hap1_contig.fa hap2_contig.fa > reference.fa
 minimap2 -t 16 -ax asm10 reference.fa input.fastq | samtools view --Shb > output.unsorted
 samtools sort -@ 16 -m 2G -n output.unsorted -o output.bam
 samtools index output.bam
