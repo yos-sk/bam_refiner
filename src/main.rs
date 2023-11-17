@@ -18,6 +18,12 @@ struct Arguments {
     #[arg(short = 'u', long)]
     hap2_tabix: String,
 
+    #[arg(short = 'l', long)]
+    hap1_list: String,
+
+    #[arg(short = 'm', long)]
+    hap2_list: String,
+
     #[arg(short = 'k', long)]
     kmer_size: u32,
 }
@@ -29,6 +35,8 @@ fn main() {
         &arguments.output_bam,
         &arguments.hap1_tabix,
         &arguments.hap2_tabix,
+        &arguments.hap1_list,
+        &arguments.hap2_list,
         arguments.kmer_size,
     ) {
         eprintln!("{}", error);

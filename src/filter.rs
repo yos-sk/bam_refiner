@@ -4,14 +4,18 @@ use rust_htslib::tbx;
 use rust_htslib::tbx::Read as tbx_read;
 use rust_htslib::tpool::Error;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error as stdError;
+use std::io::BufRead;
 
 use bam_refiner::convert_u82String;
 use bam_refiner::get_cigartuples;
 use bam_refiner::get_current_ref_pos;
 use bam_refiner::get_read_position;
 use bam_refiner::reverse_complement;
+use bam_refiner::open_file;
 
+#[path = "./write_bam.rs"]
 mod write_bam;
 
 pub fn run(
@@ -19,18 +23,34 @@ pub fn run(
     output_bam: &str,
     hap1_tabix: &str,
     hap2_tabix: &str,
+    hap1_list: &str,
+    hap2_list: &str,
     kmer_size: u32,
 ) -> Result<(), Box<dyn stdError>> {
-    let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, kmer_size);
+    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
+    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
+    let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, &hap1_set, &hap2_set, kmer_size);
     let filtered_alignments = filter(&mut alignments);
-    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments);
+    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, &hap1_set, &hap2_set);
     Ok(())
+}
+
+fn get_read_name_list(read_name_list: &str) -> Result<HashSet<String>, Box<dyn stdError>> {
+    let reader = open_file(read_name_list).expect(&format!("Could not open {}", read_name_list));
+    let mut read_set: HashSet<String> = HashSet::new();
+    for line in reader.lines() {
+        let line = line?;
+        read_set.insert(line);
+    }
+    Ok(read_set)
 }
 
 fn cal_count_marker(
     bamfile: &str,
     hap1_tabix: &str,
     hap2_tabix: &str,
+    hap1_set: &HashSet<String>,
+    hap2_set: &HashSet<String>,
     kmer_size: u32,
 ) -> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>> {
     let mut hap1_tbx_reader =
@@ -80,6 +100,8 @@ fn cal_count_marker(
                 &headers,
                 &mut hap1_tbx_reader,
                 &mut hap2_tbx_reader,
+                hap1_set,
+                hap2_set,
                 kmer_size,
             );
             alignments.insert(prev_read_id, t_alignments);
@@ -95,6 +117,8 @@ fn cal_count_marker(
         &headers,
         &mut hap1_tbx_reader,
         &mut hap2_tbx_reader,
+        hap1_set,
+        hap2_set,
         kmer_size,
     );
     alignments.insert(prev_read_id, t_alignments);
@@ -130,6 +154,8 @@ fn process_read_alignments(
     headers: &HashMap<u32, String>,
     hap1_tbx_reader: &mut tbx::Reader,
     hap2_tbx_reader: &mut tbx::Reader,
+    hap1_set: &HashSet<String>,
+    hap2_set: &HashSet<String>,
     kmer_size: u32,
 ) -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)> {
     let mut records = read_alignments.clone();
@@ -194,20 +220,13 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
-        /*
-        if reference_name == "h2tg000046l" {
-            if ref_start == 18025761 && ref_end == 18033661 {
-                eprintln!("{} {} {}", read_start, read_end, r_read_length);
-            }
-        }
-        */
 
         let mut kmer_cnt: usize = 0;
 
         let delimiter: u8 = 9; // '\t' for ASCII code
         let mut tbx_reader = &mut *hap1_tbx_reader;
-        // Take care of hifiasm and verkko cases.
-        if &reference_name[0..2] == "h1" || &reference_name[0..10] == "haplotype1" {
+
+        if hap1_set.contains(reference_name) {
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {
@@ -248,7 +267,7 @@ fn process_read_alignments(
                     continue;
                 }
             }
-        } else {
+        } else if hap2_set.contains(reference_name) {
             tbx_reader = hap2_tbx_reader;
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
@@ -291,6 +310,8 @@ fn process_read_alignments(
                     continue;
                 }
             }
+        } else {
+            eprintln!("{} does not contain in hap1 and hap2 list", reference_name); 
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
@@ -326,7 +347,6 @@ fn process_read_alignments(
             } else {
                 (&read_seq[i..(i + k)]).to_string()
             };
-            // let slice = (&read_seq[i..(i + k)]).to_string();
             if let Some(value) = tbx_sequences.get(&slice) {
                 if get_current_ref_pos(
                     &cigartuples,
@@ -458,10 +478,6 @@ fn filter(
                             supp_cnt = t_supp_info.8 as isize;
                         }
                     }
-                    /*
-                    if key == "m64288_220501_014302/165611145/ccs" {
-                        eprintln!("Secondary dist: {} {}", prim_dist, supp_dist);
-                    }*/
                     if prim_dist <= supp_dist {
                         if prim_cnt < tuple.8.try_into().unwrap() {
                             let info: (
