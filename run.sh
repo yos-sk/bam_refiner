@@ -7,6 +7,7 @@ FASTQ=$4
 OPTION_SPLIT=$5
 WORK_DIR=$6
 OUTPUT_DIR=$7
+THREAD=$8
 
 set -xv
 set -o errexit
@@ -18,22 +19,22 @@ set -o pipefail
 mkdir -p ${WORK_DIR} 
 OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
 cat ${hap1_contig} ${hap2_contig} > ${WORK_DIR}/reference.fa
-minimap2 -t 16 -ax asm10 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
-samtools sort -@ 16 -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
+minimap2 -t ${THREAD} -ax asm10 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
+samtools sort -@ ${THREAD} -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
 samtools index ${OUTPUT_BAM_PREFIX}.bam
 rm ${OUTPUT_BAM_PREFIX}.unsorted
 
 # Step2: Extract haplotype-specific unique k-mer
 mkdir -p ${WORK_DIR}/meryl
-meryl count k=21 threads=16 ${hap1_contig} output ${WORK_DIR}/meryl/hap1.meryl
-meryl count k=21 threads=16 ${hap2_contig} output ${WORK_DIR}/meryl/hap2.meryl
+meryl count k=21 threads=${THREAD} ${hap1_contig} output ${WORK_DIR}/meryl/hap1.meryl
+meryl count k=21 threads=${THREAD} ${hap2_contig} output ${WORK_DIR}/meryl/hap2.meryl
 
 
 meryl difference ${WORK_DIR}/meryl/hap1.meryl ${WORK_DIR}/meryl/hap2.meryl output ${WORK_DIR}/meryl/hap1.uniq.meryl
 meryl difference ${WORK_DIR}/meryl/hap2.meryl ${WORK_DIR}/meryl/hap1.meryl output ${WORK_DIR}/meryl/hap2.uniq.meryl
 
-meryl print threads=16 ${WORK_DIR}/meryl/hap1.uniq.meryl > ${WORK_DIR}/meryl/hap1.uniq.tsv
-meryl print threads=16 ${WORK_DIR}/meryl/hap2.uniq.meryl > ${WORK_DIR}/meryl/hap2.uniq.tsv
+meryl print threads=${THREAD} ${WORK_DIR}/meryl/hap1.uniq.meryl > ${WORK_DIR}/meryl/hap1.uniq.tsv
+meryl print threads=${THREAD} ${WORK_DIR}/meryl/hap2.uniq.meryl > ${WORK_DIR}/meryl/hap2.uniq.tsv
 
 for hap in hap1 hap2
 do
@@ -61,7 +62,6 @@ grep ">" ${hap2_contig} | sed s/\>// > ${OUTPUT_DIR}/hap2_list.txt
 gzip ${OUTPUT_DIR}/hap2_list.txt
 
 # Step 4: Refine BAM file
-mkdir -p ${OUTPUT_DIR}
 if [ $OPTION_SPLIT = "true" ]
 then
     mkdir -p ${WORK_DIR}/split
@@ -70,9 +70,10 @@ then
         --input-file ${OUTPUT_BAM_PREFIX}.bam \
         --output-dir ${WORK_DIR}/split \
         --input-size ${SIZE} \
-        --num-split 8
+        --num-split ${THREAD}
     
-    for i in {0..7}; do
+
+    for i in {0..$(( ${THREAD} - 1))}; do
         bam_refiner \
             --input-bam ${WORK_DIR}/split/${i}.bam \
             --output-bam ${WORK_DIR}/split/${i}.refined.bam \
@@ -88,12 +89,9 @@ then
     cat ${WORK_DIR}/split/${i}.bam_refiner.tsv > ${OUTPUT_DIR}/bam_refiner_result.tsv
     cat ${WORK_DIR}/split/${i}.bam_refiner.log > ${OUTPUT_DIR}/bam_refiner.log
     samtools merge \
-        -@ 8 \
-        -o ${WORK_DIR}/${SAMPLE}_bam_refined.bam \
+        -@ ${THREAD} \
+        -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
         ${WORK_DIR}/split/*.refined.bam
-
-    samtools sort -@ 8 -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam  ${WORK_DIR}/${SAMPLE}_bam_refined.bam 
-    samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
 else
     bam_refiner \
         --input-bam ${OUTPUT_BAM_PREFIX}.bam \
@@ -104,11 +102,15 @@ else
         --hap2-list ${OUTPUT_DIR}/hap2_list.txt.gz \
         --kmer-size 21 \
         1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/log/bam_refiner.log
-    
-    samtools sort -@ 8 -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
-    samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
-    rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
 fi
+
+samtools sort \
+    -@ ${THREAD} \
+    -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
+    ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
+samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
+rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
+
 gzip ${OUTPUT_DIR}/bam_refiner_result.tsv
 gzip ${OUTPUT_DIR}/log/bam_refiner.log
 

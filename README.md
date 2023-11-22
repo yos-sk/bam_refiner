@@ -14,6 +14,10 @@ cd bam_refiner
 cargo build --release
 ```
 
+## Preparation 
+### Diploid genome assembly
+You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](https://github.com/marbl/verkko.git) to perform diploid genome assembly.
+
 ## Usage
 ### 1. Singularity image
 You should make singularity image of bam_refiner.
@@ -27,14 +31,12 @@ singularity exec bam_refiner_latest.sif \
         FASTQ \ # Sequencing data
         SPLIT_OPTION \ # true or false
         WORK_DIR \ # PATH to working directory
-        OUTPUT_DIR # PATH to output directory
+        OUTPUT_DIR \ # PATH to output directory
+        THREAD # Number of threads
 ```
 
 ### 2. Step by step
-#### Step 1: Diploid genome assembly
-You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](https://github.com/marbl/verkko.git) to perform diploid genome assembly.
-
-#### Step 2: Extract haplotype-specific unique k-mer
+#### Step 1: Extract haplotype-specific unique k-mer
 You can use [meryl](https://github.com/marbl/meryl.git) to count kmers.\
 You can also use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) to search kmer positions. 
 
@@ -65,7 +67,7 @@ do
     tabix -p bed ${hap}_cnt10_kmerposition.bed.gz
 done
 ```
-#### Step 3: Align sequencing reads to the diploid genome assembly constructed in Step 1
+#### Step 2: Align sequencing reads to the diploid genome assembly constructed in Step 1
 You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http://www.htslib.org) for alignment.\
 You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
 
@@ -76,7 +78,7 @@ samtools sort -@ 16 -m 2G -n output.unsorted -o output.bam
 samtools index output.bam
 ```
 
-#### Step 4 (Optional): Split the BAM file for the array job of bam_refiner
+#### Step 3 (Optional): Split BAM file for the array job of bam_refiner
 Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.
 ```
 SIZE=`${path_to_split_bam}/split_bam size --input-file ${INPUT_BAM}`
@@ -87,16 +89,33 @@ split_bam split \
     --num-split 8
 ```
 
-#### Step 5: Refine bam file
+#### Step 4: Refine bam file
 
 ```
 ./target/release/bam_refiner \
     --input-bam ${INPUT_BAM} \
-    --output-bam ${OUTPUT_BAM} \
+    --output-bam ${OUTPUT_DIR}/${OUTPUT_BAM} \
     --hap1-tabix hap1_cnt10_kmerposition.bed.gz \
     --hap2-tabix hap2_cnt10_kmerposition.bed.gz \
     --kmer-size 21 \
     1>output.tsv 2>log
+```
+
+#### Step 5 (Optional): Merge BAM files if you split bam file in Step 3
+```
+samtools merge \
+        -@ 8 \
+        -o output_refined.bam \
+        ${OUTPUT_DIR}/*.refined.bam
+```
+
+#### Step 6: Sort refined bam file　
+```
+samtools sort \
+    -@ 8 \
+    -o output_refined.sorted.bam \
+    output_refined.bam 
+samtools index output_refined.sorted.bam 
 ```
 
 If you want to use bam_refiner for the alignment data to the exisitng reference genome (e.g. GRCh38 or CHM13), plase try single_mode branch and see [document](https://github.com/yos-sk/bam_refiner/blob/master/document/single_mode.md).
