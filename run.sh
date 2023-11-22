@@ -72,7 +72,7 @@ then
         --num-split ${THREAD}
     
 
-    for i in {0..$(( ${THREAD} - 1))}; do
+    for i in $(seq 0 $(( ${THREAD} - 1))); do
         bam_refiner \
             --input-bam ${WORK_DIR}/split/${i}.bam \
             --output-bam ${WORK_DIR}/split/${i}.refined.bam \
