@@ -21,7 +21,6 @@ OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
 cat ${hap1_contig} ${hap2_contig} > ${WORK_DIR}/reference.fa
 minimap2 -t ${THREAD} -ax asm10 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
 samtools sort -@ ${THREAD} -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
-samtools index ${OUTPUT_BAM_PREFIX}.bam
 rm ${OUTPUT_BAM_PREFIX}.unsorted
 
 # Step2: Extract haplotype-specific unique k-mer
