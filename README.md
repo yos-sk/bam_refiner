@@ -7,18 +7,34 @@ Refine alignments by unique kmers
 
 I have not tried other versions of rust_htslib.
 
-## Install 
+## Install
 ```
 git clone https://github.com/yos-sk/bam_refiner.git
 cd bam_refiner
 cargo build --release
 ```
 
-## Preparation
-### Step 1: Diploid genome assembly
+## Usage
+### 1. Singularity image
+You should make singularity image of bam_refiner.
+
+```
+singularity exec bam_refiner_latest.sif \
+    /bin/bash run.sh \
+        SAMPLE_NAME \ # sample name
+        hap1_contig \ # fasta file of haplotype1 contigs
+        hap2_contig \ # fasta file of haplotype2 contigs
+        FASTQ \ # Sequencing data
+        SPLIT_OPTION \ # true or false
+        WORK_DIR \ # PATH to working directory
+        OUTPUT_DIR # PATH to output directory
+```
+
+### 2. Step by step
+#### Step 1: Diploid genome assembly
 You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](https://github.com/marbl/verkko.git) to perform diploid genome assembly.
 
-### Step 2: Extract haplotype-specific unique k-mer
+#### Step 2: Extract haplotype-specific unique k-mer
 You can use [meryl](https://github.com/marbl/meryl.git) to count kmers.\
 You can also use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) to search kmer positions. 
 
@@ -49,7 +65,7 @@ do
     tabix -p bed ${hap}_cnt10_kmerposition.bed.gz
 done
 ```
-### Step 3: Align sequencing reads to the diploid genome assembly constructed in Step 1
+#### Step 3: Align sequencing reads to the diploid genome assembly constructed in Step 1
 You can use [minimap2](https://github.com/lh3/minimap2.git) and [samtools](http://www.htslib.org) for alignment.\
 You should sort the bam file by read name for [bam_refiner](https://github.com/yos-sk/bam_refiner.git).
 
@@ -60,7 +76,7 @@ samtools sort -@ 16 -m 2G -n output.unsorted -o output.bam
 samtools index output.bam
 ```
 
-### Step 4 (Optional): Split the BAM file for the array job of bam_refiner
+#### Step 4 (Optional): Split the BAM file for the array job of bam_refiner
 Please split the BAM file using [split_bam](https://github.com/yos-sk/split_bam.git) if necessary.
 ```
 SIZE=`${path_to_split_bam}/split_bam size --input-file ${INPUT_BAM}`
@@ -71,7 +87,7 @@ split_bam split \
     --num-split 8
 ```
 
-## Usage
+#### Step 5: Refine bam file
 
 ```
 ./target/release/bam_refiner \
