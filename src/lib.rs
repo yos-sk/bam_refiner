@@ -112,10 +112,10 @@ pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32, u32) {
 pub fn get_current_ref_pos(
     cigartuples: &Vec<(usize, u32)>,
     ref_start: i64,
-    ref_end: i64,
+    _ref_end: i64,
     it_start: usize,
     it_end: usize,
-    strand: String,
+    _strand: String,
 ) -> (u32, u32) {
     let mut out_start: u32 = ref_start as u32;
     let mut out_end: u32 = out_start;
