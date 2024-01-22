@@ -37,22 +37,22 @@ meryl print threads=${THREAD} ${WORK_DIR}/meryl/hap2.uniq.meryl > ${WORK_DIR}/me
 
 for hap in hap1 hap2
 do
-    awk '{if ($2 == 1) print}' ${WORK_DIR}/meryl/${hap}.uniq.tsv > ${WORK_DIR}/meryl/${hap}.cnt10.uniq.tsv
-    gzip ${WORK_DIR}/meryl/${hap}.cnt10.uniq.tsv
+    awk '{if ($2 == 1) print}' ${WORK_DIR}/meryl/${hap}.uniq.tsv > ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv
+    gzip ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv
     gzip ${WORK_DIR}/meryl/${hap}.uniq.tsv
 done
 
 
 mkdir -p ${OUTPUT_DIR}
-python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap1.cnt10.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt10_hap1.fa hap1
-kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt10_hap1.fa --input-file ${hap1_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt10_kmerposition.bed
-bgzip -f ${OUTPUT_DIR}/hap1_cnt10_kmerposition.bed
-tabix -p bed ${OUTPUT_DIR}/hap1_cnt10_kmerposition.bed.gz
+python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap1.cnt.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap1.fa hap1
+kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap1.fa --input-file ${hap1_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
+bgzip -f ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
+tabix -p bed ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz
 
-python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap2.cnt10.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt10_hap2.fa hap2
-kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt10_hap2.fa --input-file ${hap2_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap2_cnt10_kmerposition.bed
-bgzip -f ${OUTPUT_DIR}/hap2_cnt10_kmerposition.bed
-tabix -p bed ${OUTPUT_DIR}/hap2_cnt10_kmerposition.bed.gz
+python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap2.cnt.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap2.fa hap2
+kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap2.fa --input-file ${hap2_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
+bgzip -f ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
+tabix -p bed ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz
 
 # Step 3; List up contig names
 grep ">" ${hap1_contig} | sed s/\>// > ${OUTPUT_DIR}/hap1_list.txt
@@ -76,8 +76,8 @@ then
         bam_refiner \
             --input-bam ${WORK_DIR}/split/${i}.bam \
             --output-bam ${WORK_DIR}/split/${i}.refined.bam \
-            --hap1-tabix ${OUTPUT_DIR}/hap1_cnt10_kmerposition.bed.gz \
-            --hap2-tabix ${OUTPUT_DIR}/hap2_cnt10_kmerposition.bed.gz \
+            --hap1-tabix ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz \
+            --hap2-tabix ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz \
             --hap1-list ${OUTPUT_DIR}/hap1_list.txt.gz \
             --hap2-list ${OUTPUT_DIR}/hap2_list.txt.gz \
             --kmer-size 21 \
@@ -95,8 +95,8 @@ else
     bam_refiner \
         --input-bam ${OUTPUT_BAM_PREFIX}.bam \
         --output-bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
-        --hap1-tabix ${OUTPUT_DIR}/hap1_cnt10_kmerposition.bed.gz \
-        --hap2-tabix ${OUTPUT_DIR}/hap2_cnt10_kmerposition.bed.gz \
+        --hap1-tabix ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz \
+        --hap2-tabix ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz \
         --hap1-list ${OUTPUT_DIR}/hap1_list.txt.gz \
         --hap2-list ${OUTPUT_DIR}/hap2_list.txt.gz \
         --kmer-size 21 \
