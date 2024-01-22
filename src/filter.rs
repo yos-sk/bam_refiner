@@ -396,6 +396,7 @@ fn filter(
         usize,
         usize,
         usize,
+        Vec<usize>,
     )>,
 > {
     let mut new_results: HashMap<
@@ -411,8 +412,10 @@ fn filter(
             usize,
             usize,
             usize,
+            Vec<usize>,
         )>,
     > = HashMap::new();
+
     for (key, value) in alignments.iter_mut() {
         value.sort_by_key(|tuple| tuple.6);
         let mut prim_info: (
@@ -450,7 +453,10 @@ fn filter(
             usize,
             usize,
         )> = vec![];
+        let mut prim_kmer_cnts: Vec<usize> = Vec::new();
+        let mut supp_kmer_cnts: Vec<Vec<usize>> = Vec::new();
         for tuple in value {
+            // Secondary alignments
             if tuple.6 == 1 {
                 let mut supp_id: isize = -1;
                 let mut supp_dist: isize = -1;
@@ -530,6 +536,7 @@ fn filter(
                             );
                             prim_info = info;
                         }
+                        prim_kmer_cnts.push(tuple.8);
                     } else {
                         if supp_cnt < tuple.8.try_into().unwrap() {
                             let info: (
@@ -584,6 +591,8 @@ fn filter(
                             );
                             supp_info[id] = info;
                         }
+                        let id = supp_id as usize;
+                        supp_kmer_cnts[id].push(tuple.8)
                     }
                 } else {
                     if prim_cnt < tuple.8.try_into().unwrap() {
@@ -612,7 +621,9 @@ fn filter(
                         );
                         prim_info = info;
                     }
+                    prim_kmer_cnts.push(tuple.8);
                 }
+            // supplementary alignments
             } else if tuple.7 == 1 {
                 if tuple.8 == 0 {
                     let info: (
@@ -665,6 +676,8 @@ fn filter(
                     );
                     supp_info.push(info);
                 }
+                supp_kmer_cnts.push(vec![tuple.8]);
+            // primary alignment
             } else {
                 if tuple.8 == 0 {
                     let info: (
@@ -717,10 +730,80 @@ fn filter(
                     );
                     prim_info = info;
                 }
+                prim_kmer_cnts.push(tuple.8);
             }
         }
-        supp_info.push(prim_info);
-        new_results.insert(key.to_string(), supp_info);
+        eprintln!("{}: {:?}", key, prim_kmer_cnts);
+        eprintln!("{}: {:?}", key, supp_kmer_cnts);
+        let f_prim_info: (
+            String,
+            i64,
+            i64,
+            u32,
+            u32,
+            String,
+            usize,
+            usize,
+            usize,
+            usize,
+            Vec<usize>,
+        ) = (
+            prim_info.0.clone(),
+            prim_info.1,
+            prim_info.2,
+            prim_info.3,
+            prim_info.4,
+            prim_info.5.clone(),
+            prim_info.6,
+            prim_info.7,
+            prim_info.8,
+            prim_info.9,
+            prim_kmer_cnts,
+        );
+        
+        let mut new_result: Vec<(
+            String,
+            i64,
+            i64,
+            u32,
+            u32,
+            String,
+            usize,
+            usize,
+            usize,
+            usize,
+            Vec<usize>,    
+        )> = vec![f_prim_info];
+
+        for (i, t_supp_info) in supp_info.iter().enumerate() {
+            let f_supp_info: (
+                String,
+                i64,
+                i64,
+                u32,
+                u32,
+                String,
+                usize,
+                usize,
+                usize,
+                usize,
+                Vec<usize>,
+            ) = (
+                t_supp_info.0.clone(),
+                t_supp_info.1,
+                t_supp_info.2,
+                t_supp_info.3,
+                t_supp_info.4,
+                t_supp_info.5.clone(),
+                t_supp_info.6,
+                t_supp_info.7,
+                t_supp_info.8,
+                t_supp_info.9,
+                supp_kmer_cnts[i].clone(),
+            );
+            new_result.push(f_supp_info);
+        }
+        new_results.insert(key.to_string(), new_result);
     }
 
     for (key, value) in new_results.iter_mut() {

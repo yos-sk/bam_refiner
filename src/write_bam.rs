@@ -24,6 +24,7 @@ pub fn process_write_bam(
             usize,
             usize,
             usize,
+            Vec<usize>,
         )>,
     >,
     hap1_set: &HashSet<String>,
@@ -104,6 +105,7 @@ fn write_bam(
             usize,
             usize,
             usize,
+            Vec<usize>,
         )>,
     >,
     hap1_set: &HashSet<String>,
@@ -261,6 +263,17 @@ fn write_bam(
                 } else {
                     eprintln!("{} does not contain in hap1 and hap2 list", reference_name);
                 }
+            }
+
+            // New tag: PK and SK
+            if i.7 == 0 {
+                let prim_kmers: String = i.10.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                let prim_kmers_tag = bam::record::Aux::String(&prim_kmers);
+                record.push_aux(b"PK", prim_kmers_tag).unwrap();
+            } else {
+                let supp_kmers: String = i.10.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                let supp_kmers_tag = bam::record::Aux::String(&supp_kmers);
+                record.push_aux(b"SK", supp_kmers_tag).unwrap();
             }
             out.write(&record).unwrap();
             break;
