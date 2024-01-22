@@ -54,17 +54,17 @@ meryl print threads=16 hap2.uniq.meryl > hap2.uniq.tsv
 
 for hap in hap1 hap2
 do
-    awk '{if ($2 <= 10) print}' ${hap}.uniq.tsv > ${hap}.cnt10.uniq.tsv
-    gzip ${hap}.cnt10.uniq.tsv
+    awk '{if ($2 == 1) print}' ${hap}.uniq.tsv > ${hap}.cnt.uniq.tsv
+    gzip ${hap}.cnt.uniq.tsv
     gzip ${hap}.uniq.tsv
 done
 
 for hap in hap1 hap2
 do
-    python ${path-to-kmer_locate}/script/kmercounts2fasta.py ${hap}.cnt10.uniq.tsv.gz > unique_kmerCounts_cnt10_${hap}.fa ${hap}
-    kmer_locate --kmer-path unique_kmerCounts_cnt10_${hap}.fa --input-file ${hap}.contig.fa --kmer-size 21 | sort -k 1,1 -k 2,2n > ${hap}_cnt10_kmerposition.bed
-    bgzip -f ${hap}_cnt10_kmerposition.bed
-    tabix -p bed ${hap}_cnt10_kmerposition.bed.gz
+    python ${path-to-kmer_locate}/script/kmercounts2fasta.py ${hap}.cnt.uniq.tsv.gz > unique_kmerCounts_cnt_${hap}.fa ${hap}
+    kmer_locate --kmer-path unique_kmerCounts_cnt_${hap}.fa --input-file ${hap}.contig.fa --kmer-size 21 | sort -k 1,1 -k 2,2n > ${hap}_cnt_kmerposition.bed
+    bgzip -f ${hap}_cnt_kmerposition.bed
+    tabix -p bed ${hap}_cnt_kmerposition.bed.gz
 done
 ```
 #### Step 2: Align sequencing reads to the diploid genome assembly constructed in Step 1
