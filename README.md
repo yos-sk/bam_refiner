@@ -95,8 +95,8 @@ split_bam split \
 ./target/release/bam_refiner \
     --input-bam ${INPUT_BAM} \
     --output-bam ${OUTPUT_DIR}/${OUTPUT_BAM} \
-    --hap1-tabix hap1_cnt10_kmerposition.bed.gz \
-    --hap2-tabix hap2_cnt10_kmerposition.bed.gz \
+    --hap1-tabix hap1_cnt_kmerposition.bed.gz \
+    --hap2-tabix hap2_cnt_kmerposition.bed.gz \
     --kmer-size 21 \
     1>output.tsv 2>log
 ```
