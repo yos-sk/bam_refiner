@@ -229,7 +229,7 @@ fn write_bam(
             }
             // mapping quality
             if i.9 == 0 {
-                let mapq: u8 = 30;
+                let mapq: u8 = 60 / i.10.len() as u8;
                 record.set_mapq(mapq);
             } else {
                 let mapq: u8 = 60;
@@ -251,7 +251,6 @@ fn write_bam(
                 let aux_hp_tag = bam::record::Aux::U8(0);
                 record.push_aux(b"HP", aux_hp_tag).unwrap();
             } else {
-                // Take care of hifiasm and verkko cases.
                 if hap1_set.contains(reference_name) {
                     // let aux_hp_tag = bam::record::Aux::String("HP1");
                     let aux_hp_tag = bam::record::Aux::U8(1);
