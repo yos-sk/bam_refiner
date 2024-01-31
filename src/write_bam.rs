@@ -24,6 +24,7 @@ pub fn process_write_bam(
             usize,
             usize,
             usize,
+            usize,
             Vec<usize>,
         )>,
     >,
@@ -101,6 +102,7 @@ fn write_bam(
             u32,
             u32,
             String,
+            usize,
             usize,
             usize,
             usize,
@@ -228,8 +230,8 @@ fn write_bam(
                 );
             }
             // mapping quality
-            if i.9 == 0 {
-                let mapq: u8 = 60 / i.10.len() as u8;
+            if i.10 == 0 {
+                let mapq: u8 = 60 / i.11.len() as u8;
                 record.set_mapq(mapq);
             } else {
                 let mapq: u8 = 60;
@@ -246,7 +248,7 @@ fn write_bam(
             }
 
             // New tag: HP
-            if i.9 == 0 {
+            if i.10 == 0 {
                 // let aux_hp_tag = bam::record::Aux::String("Amb");
                 let aux_hp_tag = bam::record::Aux::U8(0);
                 record.push_aux(b"HP", aux_hp_tag).unwrap();
@@ -266,14 +268,18 @@ fn write_bam(
 
             // New tag: PK and SK
             if i.7 == 0 {
-                let prim_kmers: String = i.10.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                let prim_kmers: String = i.11.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
                 let prim_kmers_tag = bam::record::Aux::String(&prim_kmers);
                 record.push_aux(b"PK", prim_kmers_tag).unwrap();
             } else {
-                let supp_kmers: String = i.10.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                let supp_kmers: String = i.11.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
                 let supp_kmers_tag = bam::record::Aux::String(&supp_kmers);
                 record.push_aux(b"SK", supp_kmers_tag).unwrap();
             }
+
+            // New tag: reference kmer
+            let aux_rk_tag = bam::record::Aux::U32(i.9 as u32);
+            record.push_aux(b"RK", aux_rk_tag).unwrap();
             out.write(&record).unwrap();
             break;
         }

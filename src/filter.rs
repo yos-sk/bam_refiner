@@ -18,6 +18,7 @@ use bam_refiner::open_file;
 #[path = "./write_bam.rs"]
 mod write_bam;
 
+// TODO: reference kmer countの追加
 pub fn run(
     input_bam: &str,
     output_bam: &str,
@@ -52,7 +53,7 @@ fn cal_count_marker(
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
     kmer_size: u32,
-) -> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>> {
+) -> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>> {
     let mut hap1_tbx_reader =
         tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
 
@@ -72,7 +73,7 @@ fn cal_count_marker(
 
     let mut alignments: HashMap<
         String,
-        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>,
+        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>,
     > = HashMap::new();
 
     let mut read_alignments: Vec<bam::record::Record> = Vec::new();
@@ -134,13 +135,13 @@ fn cal_count_marker(
         for (i, tuple) in value.iter().enumerate() {
             if i != value.len() - 1 {
                 eprint!(
-                    "{},{},{},{},{},{},{},{},{}\t",
-                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8
+                    "{},{},{},{},{},{},{},{},{},{}\t",
+                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9
                 );
             } else {
                 eprintln!(
-                    "{},{},{},{},{},{},{},{},{}",
-                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8
+                    "{},{},{},{},{},{},{},{},{},{}",
+                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9
                 );
             }
         }
@@ -157,11 +158,11 @@ fn process_read_alignments(
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
     kmer_size: u32,
-) -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)> {
+) -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)> {
     let mut records = read_alignments.clone();
     records.sort_by_key(|t| t.flags());
 
-    let mut counted_alignments: Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)> =
+    let mut counted_alignments: Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)> =
         Vec::new();
     let mut sequence = String::new();
     for (i, record) in records.iter().enumerate() {
@@ -230,7 +231,7 @@ fn process_read_alignments(
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
@@ -240,6 +241,7 @@ fn process_read_alignments(
                         is_sec,
                         is_supp,
                         kmer_cnt,
+                        0,
                     );
                     counted_alignments.push(info);
                     continue;
@@ -252,7 +254,7 @@ fn process_read_alignments(
                     ();
                 }
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
@@ -262,6 +264,7 @@ fn process_read_alignments(
                         is_sec,
                         is_supp,
                         kmer_cnt,
+                        0,
                     );
                     counted_alignments.push(info);
                     continue;
@@ -272,7 +275,7 @@ fn process_read_alignments(
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
@@ -282,6 +285,7 @@ fn process_read_alignments(
                         is_sec,
                         is_supp,
                         kmer_cnt,
+                        0,
                     );
                     counted_alignments.push(info);
                     continue;
@@ -294,7 +298,7 @@ fn process_read_alignments(
                     ();
                 }
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
                         reference_name.to_string(),
                         ref_start,
                         ref_end,
@@ -304,6 +308,7 @@ fn process_read_alignments(
                         is_sec,
                         is_supp,
                         kmer_cnt,
+                        0,
                     );
                     // println!("{} {}", read_id, kmer_cnt);
                     counted_alignments.push(info);
@@ -315,6 +320,7 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
+        let mut ref_kmer_cnt: usize = 0;
         for tbx_record in tbx_reader.records() {
             let in_record = tbx_record.unwrap();
             let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
@@ -332,6 +338,7 @@ fn process_read_alignments(
                 let tmp_start: u32 = start.try_into().unwrap();
                 let tmp_end: u32 = end.try_into().unwrap();
                 tbx_sequences.insert(seq, (tmp_start, tmp_end));
+                ref_kmer_cnt += 1;
             }
         }
 
@@ -362,7 +369,7 @@ fn process_read_alignments(
             }
         }
 
-        let info: (String, i64, i64, u32, u32, String, usize, usize, usize) = (
+        let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
             reference_name.to_string(),
             ref_start,
             ref_end,
@@ -372,6 +379,7 @@ fn process_read_alignments(
             is_sec,
             is_supp,
             kmer_cnt,
+            ref_kmer_cnt,
         );
         counted_alignments.push(info);
     }
@@ -381,7 +389,7 @@ fn process_read_alignments(
 fn filter(
     alignments: &mut HashMap<
         String,
-        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize)>,
+        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>,
     >,
 ) -> HashMap<
     String,
@@ -392,6 +400,7 @@ fn filter(
         u32,
         u32,
         String,
+        usize,
         usize,
         usize,
         usize,
@@ -408,6 +417,7 @@ fn filter(
             u32,
             u32,
             String,
+            usize,
             usize,
             usize,
             usize,
@@ -429,7 +439,9 @@ fn filter(
             usize,
             usize,
             usize,
+            usize,
         ) = (
+            Default::default(),
             Default::default(),
             Default::default(),
             Default::default(),
@@ -448,6 +460,7 @@ fn filter(
             u32,
             u32,
             String,
+            usize,
             usize,
             usize,
             usize,
@@ -497,6 +510,7 @@ fn filter(
                                 usize,
                                 usize,
                                 usize,
+                                usize,
                             ) = (
                                 tuple.0.clone(),
                                 tuple.1,
@@ -507,6 +521,7 @@ fn filter(
                                 0,
                                 tuple.7,
                                 tuple.8,
+                                tuple.9,
                                 1,
                             );
                             prim_info = info;
@@ -522,6 +537,7 @@ fn filter(
                                 usize,
                                 usize,
                                 usize,
+                                usize,
                             ) = (
                                 prim_info.0.clone(),
                                 prim_info.1,
@@ -532,6 +548,7 @@ fn filter(
                                 0,
                                 prim_info.7,
                                 prim_info.8,
+                                prim_info.9,
                                 0,
                             );
                             prim_info = info;
@@ -550,6 +567,7 @@ fn filter(
                                 usize,
                                 usize,
                                 usize,
+                                usize,
                             ) = (
                                 tuple.0.clone(),
                                 tuple.1,
@@ -560,6 +578,7 @@ fn filter(
                                 0,
                                 1,
                                 tuple.8,
+                                tuple.9,
                                 1,
                             );
                             let id = supp_id as usize;
@@ -577,6 +596,7 @@ fn filter(
                                 usize,
                                 usize,
                                 usize,
+                                usize,
                             ) = (
                                 supp_info[id].0.clone(),
                                 supp_info[id].1,
@@ -587,6 +607,7 @@ fn filter(
                                 0,
                                 1,
                                 supp_info[id].8,
+                                supp_info[id].9,
                                 0,
                             );
                             supp_info[id] = info;
@@ -607,6 +628,7 @@ fn filter(
                             usize,
                             usize,
                             usize,
+                            usize,
                         ) = (
                             tuple.0.clone(),
                             tuple.1,
@@ -617,6 +639,7 @@ fn filter(
                             0,
                             tuple.7,
                             tuple.8,
+                            tuple.9,
                             1,
                         );
                         prim_info = info;
@@ -637,6 +660,7 @@ fn filter(
                         usize,
                         usize,
                         usize,
+                        usize,
                     ) = (
                         tuple.0.clone(),
                         tuple.1,
@@ -647,6 +671,7 @@ fn filter(
                         0,
                         1,
                         tuple.8,
+                        tuple.9,
                         0,
                     );
                     supp_info.push(info);
@@ -662,6 +687,7 @@ fn filter(
                         usize,
                         usize,
                         usize,
+                        usize,
                     ) = (
                         tuple.0.clone(),
                         tuple.1,
@@ -672,6 +698,7 @@ fn filter(
                         0,
                         1,
                         tuple.8,
+                        tuple.9,
                         1,
                     );
                     supp_info.push(info);
@@ -691,6 +718,7 @@ fn filter(
                         usize,
                         usize,
                         usize,
+                        usize,
                     ) = (
                         tuple.0.clone(),
                         tuple.1,
@@ -701,6 +729,7 @@ fn filter(
                         0,
                         tuple.7,
                         tuple.8,
+                        tuple.9,
                         0,
                     );
                     prim_info = info;
@@ -716,6 +745,7 @@ fn filter(
                         usize,
                         usize,
                         usize,
+                        usize,
                     ) = (
                         tuple.0.clone(),
                         tuple.1,
@@ -726,6 +756,7 @@ fn filter(
                         0,
                         tuple.7,
                         tuple.8,
+                        tuple.9,
                         1,
                     );
                     prim_info = info;
@@ -746,6 +777,7 @@ fn filter(
             usize,
             usize,
             usize,
+            usize,
             Vec<usize>,
         ) = (
             prim_info.0.clone(),
@@ -758,6 +790,7 @@ fn filter(
             prim_info.7,
             prim_info.8,
             prim_info.9,
+            prim_info.10,
             prim_kmer_cnts,
         );
         
@@ -768,6 +801,7 @@ fn filter(
             u32,
             u32,
             String,
+            usize,
             usize,
             usize,
             usize,
@@ -787,6 +821,7 @@ fn filter(
                 usize,
                 usize,
                 usize,
+                usize,
                 Vec<usize>,
             ) = (
                 t_supp_info.0.clone(),
@@ -799,6 +834,7 @@ fn filter(
                 t_supp_info.7,
                 t_supp_info.8,
                 t_supp_info.9,
+                t_supp_info.10,
                 supp_kmer_cnts[i].clone(),
             );
             new_result.push(f_supp_info);
@@ -817,7 +853,7 @@ fn filter(
         for (i, tuple) in value.iter().enumerate() {
             if i != value.len() - 1 {
                 print!(
-                    "{},{},{},{},{},{},{},{},{},{}\t",
+                    "{},{},{},{},{},{},{},{},{},{},{}\t",
                     tuple.0,
                     tuple.1,
                     tuple.2,
@@ -827,11 +863,12 @@ fn filter(
                     tuple.6,
                     tuple.7,
                     tuple.8,
-                    tuple.9
+                    tuple.9,
+                    tuple.10,
                 );
             } else {
                 println!(
-                    "{},{},{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{},{},{}",
                     tuple.0,
                     tuple.1,
                     tuple.2,
@@ -841,7 +878,8 @@ fn filter(
                     tuple.6,
                     tuple.7,
                     tuple.8,
-                    tuple.9
+                    tuple.9,
+                    tuple.10,
                 );
             }
         }
