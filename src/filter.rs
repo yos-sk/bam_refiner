@@ -14,11 +14,11 @@ use bam_refiner::get_current_ref_pos;
 use bam_refiner::get_read_position;
 use bam_refiner::reverse_complement;
 use bam_refiner::open_file;
+use bam_refiner::get_deletion_ref_pos;
 
 #[path = "./write_bam.rs"]
 mod write_bam;
 
-// TODO: reference kmer countの追加
 pub fn run(
     input_bam: &str,
     output_bam: &str,
@@ -321,6 +321,8 @@ fn process_read_alignments(
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
         let mut ref_kmer_cnt: usize = 0;
+        let read_id = String::from_utf8_lossy(record.qname()).to_string();
+        let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
         for tbx_record in tbx_reader.records() {
             let in_record = tbx_record.unwrap();
             let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
@@ -338,7 +340,20 @@ fn process_read_alignments(
                 let tmp_start: u32 = start.try_into().unwrap();
                 let tmp_end: u32 = end.try_into().unwrap();
                 tbx_sequences.insert(seq, (tmp_start, tmp_end));
-                ref_kmer_cnt += 1;
+                let mut cnt_flag = true;
+                for del in del_ref_pos.iter() {
+                    if del.1 >= tmp_start && del.0 <= tmp_end {
+                        cnt_flag = false;
+                    }
+                    /*
+                    if read_id == "m64288_220429_181717/1419/ccs" {
+                        eprintln!("Deletion test: {}\t{}\t{}\t{}\t{}\t{:?}", ref_start, del.0, del.1, tmp_start, tmp_end, cnt_flag);
+                    }
+                    */
+                }
+                if cnt_flag {
+                    ref_kmer_cnt += 1;
+                }
             }
         }
 

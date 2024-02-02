@@ -5,6 +5,7 @@ use std::error::Error;
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
 
+
 pub fn reverse_complement(sequence: &str) -> String {
     // complement
     let complement = sequence
@@ -107,6 +108,35 @@ pub fn get_read_position(cigartuples: &Vec<(usize, u32)>) -> (u32, u32, u32) {
         }
     }
     (read_start, read_end, read_start + read_length)
+}
+
+pub fn get_deletion_ref_pos(cigartuples: &Vec<(usize, u32)>,
+    ref_start: i64,
+) -> Vec<(u32, u32)> {
+    let mut ref_length: u32 = 0;
+    let mut del_ref_db: Vec<(u32, u32)> = Vec::new();
+
+    for (op, len) in cigartuples.iter() {
+        match op {
+            0 | 7 | 8 => {
+                // read_length += len;
+                ref_length += len;
+            },
+            /*
+            1 | 4 | 5 => {
+                read_length += len;
+            }
+            */
+            2 | 3 => {
+                let start = ref_start as u32 + ref_length;
+                let end = start + len - 1;
+                del_ref_db.push((start, end));
+                ref_length += len;
+            },
+            _ => (),
+        }
+    }
+    del_ref_db
 }
 
 pub fn get_current_ref_pos(
