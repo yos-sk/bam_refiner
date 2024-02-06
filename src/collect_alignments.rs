@@ -66,7 +66,7 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
             sequences.insert(read_id.clone(), seq);
         }
 
-        eprintln!("{},{},{},{},{},{},{:?},{:?},{:?}", read_id, ref_name, ref_start, ref_end, r_read_start, r_read_end, record.is_reverse(), record.is_supplementary(), record.is_secondary());
+        // eprintln!("{},{},{},{},{},{},{:?},{:?},{:?}", read_id, ref_name, ref_start, ref_end, r_read_start, r_read_end, record.is_reverse(), record.is_supplementary(), record.is_secondary());
 
         // Save the above infromation as Data structure
         let save = Data {

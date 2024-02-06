@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as stdError;
 use std::io::BufRead;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use bam_refiner::get_deletion_ref_pos;
@@ -56,8 +56,8 @@ pub fn run(
         handle.join().unwrap();
     }
 
-    let map = shared_alignments.lock().unwrap();
-    println!("{:?}", *map);
+    let map: MutexGuard<Vec<Data>> = shared_alignments.lock().unwrap();
+    // println!("{:?}", *map);
     Ok(())
 }
 
@@ -80,7 +80,7 @@ fn count_kmers(alignments: &mut Vec<Data>, sequences: &HashMap<String, Vec<u8>>,
     for read in alignments_thread.iter_mut() {
         if let Some(value) = sequences.get(&read.read_name) {
             let (ref_kmer_cnt, read_kmer_cnt) = count_kmers_tbx(read, value, &mut hap1_tbx_reader, &mut hap2_tbx_reader, &hap1_set, &hap2_set, kmer_size);
-            eprintln!("{} {} {}", read.read_name, ref_kmer_cnt, read_kmer_cnt);
+            // eprintln!("{} {} {}", read.read_name, ref_kmer_cnt, read_kmer_cnt);
             read.rk_cnt = ref_kmer_cnt;
             read.pk_sk_cnt = read_kmer_cnt;
         } else {
@@ -142,7 +142,7 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
             tbx_sequences.insert(kmer_seq, (tmp_start, tmp_end));
             let mut cnt_flag = true;
             for del in del_ref_pos.iter() {
-                if del.1 >= tmp_start && del.0 <= tmp_end {
+                if del.1 >= tmp_start && del.0 < tmp_end {
                     cnt_flag = false;
                 }
             }

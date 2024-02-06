@@ -39,6 +39,7 @@ pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
     complement_seq
 }
 
+/*
 pub fn reverse_complement_str(sequence: &str) -> String {
     // complement
     let complement = sequence
@@ -57,6 +58,7 @@ pub fn reverse_complement_str(sequence: &str) -> String {
 
     rev_comp
 }
+*/
 
 pub fn get_cigartuples(record: &bam::Record) -> Vec<(u8, u32)> {
     let mut cigartuples: Vec<(u8, u32)> = vec![];

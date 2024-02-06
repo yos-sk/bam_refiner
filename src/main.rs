@@ -2,7 +2,7 @@ use clap::Parser;
 //use std::process;
 
 mod collect_alignments;
-mod filter;
+mod kmer_count;
 
 #[derive(Parser)]
 #[command(author = "Yoshitaka Sakamoto", version = "0.3.3", about = "Refine alignments by unique kmers.", long_about = None)]
@@ -40,7 +40,7 @@ fn main() {
         arguments.threads,
     ).expect("Error");
 
-    let _ = filter::run(alignments, sequences, &arguments.hap1_tabix, &arguments.hap2_tabix, &arguments.hap1_list, &arguments.hap2_list, arguments.kmer_size, arguments.threads).expect("Error");
+    let _ = kmer_count::run(alignments, sequences, &arguments.hap1_tabix, &arguments.hap2_tabix, &arguments.hap1_list, &arguments.hap2_list, arguments.kmer_size, arguments.threads).expect("Error");
 }
 
 
