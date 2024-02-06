@@ -342,7 +342,7 @@ fn process_read_alignments(
                 tbx_sequences.insert(seq, (tmp_start, tmp_end));
                 let mut cnt_flag = true;
                 for del in del_ref_pos.iter() {
-                    if del.1 >= tmp_start && del.0 <= tmp_end {
+                    if del.1 >= tmp_start && del.0 < tmp_end {
                         cnt_flag = false;
                     }
                     /*
