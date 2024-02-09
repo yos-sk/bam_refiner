@@ -6,9 +6,10 @@ use bam_refiner::get_read_position;
 use bam_refiner::reverse_complement;
 use bam_refiner::Data;
 
-pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String, Vec<u8>>), Box<dyn Error>> {
+pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String, Vec<u8>>, HashMap<String, Vec<u8>>, HashMap<String, Vec<usize>>,), Box<dyn Error>> {
     let mut records: Vec<Data> = Vec::new(); 
     let mut sequences: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut qualities: HashMap<String, Vec<u8>> = HashMap::new();
     let mut bam = bam::Reader::from_path(input_bam).expect(&format!("Could not open {}", input_bam));
 
     let header = bam.header().clone();
@@ -37,7 +38,7 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
         // cigar_tuples
         let cigartuples = get_cigartuples(&record);
 
-         // read name
+        // read name
         let read_id: String = String::from_utf8_lossy(record.qname()).to_string();
 
         // read position
@@ -56,7 +57,7 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
             r_read_length - r_start
         };
 
-        // sequence of read
+        // sequence & quality
         if !record.is_supplementary() && !record.is_secondary() {
             let seq: Vec<u8> = if record.is_reverse() {
                 reverse_complement(&record.seq().as_bytes())
@@ -64,6 +65,12 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
                 record.seq().as_bytes()
             };
             sequences.insert(read_id.clone(), seq);
+
+            let mut qual: Vec<u8> = record.qual().to_vec();
+            if record.is_reverse() {
+                qual.reverse();
+            } 
+            qualities.insert(read_id.clone(), qual);
         }
 
         // eprintln!("{},{},{},{},{},{},{:?},{:?},{:?}", read_id, ref_name, ref_start, ref_end, r_read_start, r_read_end, record.is_reverse(), record.is_supplementary(), record.is_secondary());
@@ -82,10 +89,20 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
             cigar_tuples: cigartuples, 
             rk_cnt: 0,
             pk_sk_cnt: 0,
+            pk_sk_vec: Vec::new(),
         };
         
         records.push(save);
         
     }
-    Ok((records, sequences))
+
+    let mut indices: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, record) in records.iter().enumerate() {
+        if let Some(value) = indices.get_mut(&record.read_name) {
+            value.push(i);
+        } else {
+            indices.insert(record.read_name.clone(), vec![i]);
+        }
+    }
+    Ok((records, sequences, qualities, indices))
 }

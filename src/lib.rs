@@ -4,6 +4,7 @@ use std::path::Path;
 use std::error::Error;
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Data {
@@ -19,6 +20,7 @@ pub struct Data {
     pub cigar_tuples: Vec<(u8, u32)>,
     pub rk_cnt: usize,
     pub pk_sk_cnt: usize, 
+    pub pk_sk_vec: Vec<usize>,
 }
 
 pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
@@ -39,26 +41,6 @@ pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
     complement_seq
 }
 
-/*
-pub fn reverse_complement_str(sequence: &str) -> String {
-    // complement
-    let complement = sequence
-        .chars()
-        .map(|c| match c {
-            'A' => 'T',
-            'C' => 'G',
-            'G' => 'C',
-            'T' => 'A',
-            _ => c,
-        })
-        .collect::<String>();
-
-    // reverse
-    let rev_comp = complement.chars().rev().collect::<String>();
-
-    rev_comp
-}
-*/
 
 pub fn get_cigartuples(record: &bam::Record) -> Vec<(u8, u32)> {
     let mut cigartuples: Vec<(u8, u32)> = vec![];
@@ -232,4 +214,14 @@ pub fn open_file<P: AsRef<Path>>(p: P) -> Result<Box<dyn BufRead>, Box<dyn Error
         let buf_reader = BufReader::new(r);
         Ok(Box::new(buf_reader))
     }
+}
+
+pub fn get_read_name_list(read_name_list: &str) -> Result<HashSet<String>, Box<dyn Error>> {
+    let reader = open_file(read_name_list).expect(&format!("Could not open {}", read_name_list));
+    let mut read_set: HashSet<String> = HashSet::new();
+    for line in reader.lines() {
+        let line = line?;
+        read_set.insert(line);
+    }
+    Ok(read_set)
 }

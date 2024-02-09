@@ -3,14 +3,13 @@ use rust_htslib::tpool::Error;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as stdError;
-use std::io::BufRead;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use bam_refiner::get_deletion_ref_pos;
 use bam_refiner::get_current_ref_pos;
 use bam_refiner::reverse_complement;
-use bam_refiner::open_file;
+use bam_refiner::get_read_name_list;
 
 use bam_refiner::Data;
 
@@ -26,13 +25,16 @@ pub fn run(
     hap2_list: &str,
     kmer_size: u32,
     threads: usize,
-) -> Result<(), Box<dyn stdError>> {
+) -> Result<Vec<Data>, Box<dyn stdError>> {
+    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
+    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
+
     let shared_alignments: Arc<Mutex<Vec<Data>>> = Arc::new(Mutex::new(alignments));
     let shared_sequences: Arc<Mutex<HashMap<String, Vec<u8>>>> = Arc::new(Mutex::new(sequences));
     let shared_hap1_tabix = Arc::new(hap1_tabix.to_string());
     let shared_hap2_tabix = Arc::new(hap2_tabix.to_string());
-    let shared_hap1_list = Arc::new(hap1_list.to_string());
-    let shared_hap2_list = Arc::new(hap2_list.to_string());
+    let shared_hap1_set: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(hap1_set));
+    let shared_hap2_set: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(hap2_set));
 
     let threads: Vec<_> = (0..threads)
         .map(|i| {
@@ -40,14 +42,16 @@ pub fn run(
             let shared_seq = Arc::clone(&shared_sequences);
             let shared_h1_tbx = Arc::clone(&shared_hap1_tabix);
             let shared_h2_tbx = Arc::clone(&shared_hap2_tabix);
-            let shared_h1_ls = Arc::clone(&shared_hap1_list);
-            let shared_h2_ls = Arc::clone(&shared_hap2_list);
+            let shared_h1_set = Arc::clone(&shared_hap1_set);
+            let shared_h2_set = Arc::clone(&shared_hap2_set);
 
             thread::spawn(move || {
                 // process by thread
                 let mut map = shared_map.lock().unwrap();
                 let seq = shared_seq.lock().unwrap();
-                count_kmers(&mut map, &seq, i, &shared_h1_tbx, &shared_h2_tbx, &shared_h1_ls, &shared_h2_ls, threads, kmer_size);  
+                let h1_set = shared_h1_set.lock().unwrap();
+                let h2_set = shared_h2_set.lock().unwrap();
+                count_kmers(&mut map, &seq, i, &shared_h1_tbx, &shared_h2_tbx, &h1_set, &h2_set, threads, kmer_size);  
             })
         })
         .collect();
@@ -57,30 +61,37 @@ pub fn run(
     }
 
     let map: MutexGuard<Vec<Data>> = shared_alignments.lock().unwrap();
-    // println!("{:?}", *map);
-    Ok(())
+    // eprintln!("{:?}", *map);
+    let out: Vec<Data> = (*map.clone()).to_vec();
+    Ok(out)
 }
 
-fn count_kmers(alignments: &mut Vec<Data>, sequences: &HashMap<String, Vec<u8>>, index:usize, hap1_tabix: &str, hap2_tabix: &str, hap1_list: &str, hap2_list: &str, threads: usize, kmer_size: u32) {
+fn count_kmers(alignments: &mut Vec<Data>, sequences: &HashMap<String, Vec<u8>>, index:usize, hap1_tabix: &str, hap2_tabix: &str, hap1_set: &HashSet<String>, hap2_set: &HashSet<String>, threads: usize, kmer_size: u32) {
     let mut hap1_tbx_reader =
         tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
     let mut hap2_tbx_reader =
         tbx::Reader::from_path(hap2_tabix).expect(&format!("Could not open {}", hap2_tabix));
-    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
-    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
-
+    
     let start = alignments.len() / threads * index;
     let end = if index != threads - 1 {
         alignments.len() / threads * (index + 1)
     } else {
         alignments.len()
     };
-    let mut alignments_thread = (&alignments[start..end]).to_vec();
+    // let mut alignments_thread = (&alignments[start..end]).to_vec();
 
-    for read in alignments_thread.iter_mut() {
+    for (i, read) in alignments.iter_mut().enumerate() {
+        if i < start {
+            continue;
+        } else if i >= end {
+            break;
+        }
         if let Some(value) = sequences.get(&read.read_name) {
-            let (ref_kmer_cnt, read_kmer_cnt) = count_kmers_tbx(read, value, &mut hap1_tbx_reader, &mut hap2_tbx_reader, &hap1_set, &hap2_set, kmer_size);
-            // eprintln!("{} {} {}", read.read_name, ref_kmer_cnt, read_kmer_cnt);
+            /*if read.read_name == "m64288_220429_181717/197/ccs" {
+                eprintln!("{}", String::from_utf8_lossy(value));
+            }*/
+            let (ref_kmer_cnt, read_kmer_cnt) = count_kmers_tbx(read, value, &mut hap1_tbx_reader, &mut hap2_tbx_reader, hap1_set, hap2_set, kmer_size);
+            // eprintln!("kmer_count: {} {} {}", read.read_name, ref_kmer_cnt, read_kmer_cnt);
             read.rk_cnt = ref_kmer_cnt;
             read.pk_sk_cnt = read_kmer_cnt;
         } else {
@@ -151,18 +162,25 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
             }
         }
     }
+    
 
     let it_start: usize = read.read_start as usize;
     let it_end: usize = read.read_end as usize;
     let k: usize = kmer_size as usize;
+    let seq = if read.is_reverse {
+        reverse_complement(&read_seq)
+    } else {
+        read_seq.clone()
+    };
     for i in it_start..(it_end - k + 1) {
         let slice = if read_strand == "-" {
             // eprintln!("{} {} {} {} {:?} {:?}", i, i + k, read_seq.len(), read.read_name, read.is_secondary, read.is_supplementary);
-            String::from_utf8_lossy(&reverse_complement(&read_seq[i..(i + k)].to_vec())).to_string()
+            String::from_utf8_lossy(&reverse_complement(&seq[i..(i + k)].to_vec())).to_string()
         } else {
             // eprintln!("{} {} {} {} {:?} {:?}", i, i + k, read_seq.len(), read.read_name, read.is_secondary, read.is_supplementary);
-            String::from_utf8_lossy(&read_seq[i..(i + k)].to_vec()).to_string()
+            String::from_utf8_lossy(&seq[i..(i + k)].to_vec()).to_string()
         };
+        
         if let Some(value) = tbx_sequences.get(&slice) {
             if get_current_ref_pos(
                 &read.cigar_tuples,
@@ -178,14 +196,4 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
         }
     }
     (ref_kmer_cnt, read_kmer_cnt)
-}
-
-fn get_read_name_list(read_name_list: &str) -> Result<HashSet<String>, Box<dyn stdError>> {
-    let reader = open_file(read_name_list).expect(&format!("Could not open {}", read_name_list));
-    let mut read_set: HashSet<String> = HashSet::new();
-    for line in reader.lines() {
-        let line = line?;
-        read_set.insert(line);
-    }
-    Ok(read_set)
 }
