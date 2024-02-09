@@ -1,23 +1,35 @@
-use rust_htslib::{bam, bam::Read, htslib};
-use std::error::Error;
-use std::collections::HashMap;
 use bam_refiner::get_cigartuples;
 use bam_refiner::get_read_position;
 use bam_refiner::reverse_complement;
 use bam_refiner::Data;
+use rust_htslib::{bam, bam::Read, htslib};
+use std::collections::HashMap;
+use std::error::Error;
 
-pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String, Vec<u8>>, HashMap<String, Vec<u8>>, HashMap<String, Vec<usize>>,), Box<dyn Error>> {
-    let mut records: Vec<Data> = Vec::new(); 
+pub fn run(
+    input_bam: &str,
+    threads: usize,
+) -> Result<
+    (
+        Vec<Data>,
+        HashMap<String, Vec<u8>>,
+        HashMap<String, Vec<u8>>,
+        HashMap<String, Vec<usize>>,
+    ),
+    Box<dyn Error>,
+> {
+    let mut records: Vec<Data> = Vec::new();
     let mut sequences: HashMap<String, Vec<u8>> = HashMap::new();
     let mut qualities: HashMap<String, Vec<u8>> = HashMap::new();
-    let mut bam = bam::Reader::from_path(input_bam).expect(&format!("Could not open {}", input_bam));
+    let mut bam =
+        bam::Reader::from_path(input_bam).expect(&format!("Could not open {}", input_bam));
 
     let header = bam.header().clone();
-    bam.set_threads(threads).expect(&format!("Failure set {} threads", threads));
+    bam.set_threads(threads)
+        .expect(&format!("Failure set {} threads", threads));
 
-    let filter_closure: Box<dyn Fn(&bam::Record) -> bool> = Box::new(|record: &bam::Record| {
-        record.flags() & htslib::BAM_FUNMAP as u16 == 0
-    });
+    let filter_closure: Box<dyn Fn(&bam::Record) -> bool> =
+        Box::new(|record: &bam::Record| record.flags() & htslib::BAM_FUNMAP as u16 == 0);
 
     let mut all_counts = 0;
     for record in bam
@@ -69,7 +81,7 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
             let mut qual: Vec<u8> = record.qual().to_vec();
             if record.is_reverse() {
                 qual.reverse();
-            } 
+            }
             qualities.insert(read_id.clone(), qual);
         }
 
@@ -86,14 +98,13 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(Vec<Data>, HashMap<String
             is_reverse: record.is_reverse(),
             is_supplementary: record.is_supplementary(),
             is_secondary: record.is_secondary(),
-            cigar_tuples: cigartuples, 
+            cigar_tuples: cigartuples,
             rk_cnt: 0,
             pk_sk_cnt: 0,
             pk_sk_vec: Vec::new(),
         };
-        
+
         records.push(save);
-        
     }
 
     let mut indices: HashMap<String, Vec<usize>> = HashMap::new();

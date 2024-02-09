@@ -1,15 +1,15 @@
-use rust_htslib::{tbx, tbx::Read};
 use rust_htslib::tpool::Error;
+use rust_htslib::{tbx, tbx::Read};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as stdError;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
-use bam_refiner::get_deletion_ref_pos;
 use bam_refiner::get_current_ref_pos;
-use bam_refiner::reverse_complement;
+use bam_refiner::get_deletion_ref_pos;
 use bam_refiner::get_read_name_list;
+use bam_refiner::reverse_complement;
 
 use bam_refiner::Data;
 
@@ -26,8 +26,10 @@ pub fn run(
     kmer_size: u32,
     threads: usize,
 ) -> Result<Vec<Data>, Box<dyn stdError>> {
-    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
-    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
+    let hap1_set: HashSet<String> =
+        get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
+    let hap2_set: HashSet<String> =
+        get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
 
     let shared_alignments: Arc<Mutex<Vec<Data>>> = Arc::new(Mutex::new(alignments));
     let shared_sequences: Arc<Mutex<HashMap<String, Vec<u8>>>> = Arc::new(Mutex::new(sequences));
@@ -51,11 +53,21 @@ pub fn run(
                 let seq = shared_seq.lock().unwrap();
                 let h1_set = shared_h1_set.lock().unwrap();
                 let h2_set = shared_h2_set.lock().unwrap();
-                count_kmers(&mut map, &seq, i, &shared_h1_tbx, &shared_h2_tbx, &h1_set, &h2_set, threads, kmer_size);  
+                count_kmers(
+                    &mut map,
+                    &seq,
+                    i,
+                    &shared_h1_tbx,
+                    &shared_h2_tbx,
+                    &h1_set,
+                    &h2_set,
+                    threads,
+                    kmer_size,
+                );
             })
         })
         .collect();
-    
+
     for handle in threads {
         handle.join().unwrap();
     }
@@ -66,12 +78,22 @@ pub fn run(
     Ok(out)
 }
 
-fn count_kmers(alignments: &mut Vec<Data>, sequences: &HashMap<String, Vec<u8>>, index:usize, hap1_tabix: &str, hap2_tabix: &str, hap1_set: &HashSet<String>, hap2_set: &HashSet<String>, threads: usize, kmer_size: u32) {
+fn count_kmers(
+    alignments: &mut Vec<Data>,
+    sequences: &HashMap<String, Vec<u8>>,
+    index: usize,
+    hap1_tabix: &str,
+    hap2_tabix: &str,
+    hap1_set: &HashSet<String>,
+    hap2_set: &HashSet<String>,
+    threads: usize,
+    kmer_size: u32,
+) {
     let mut hap1_tbx_reader =
         tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
     let mut hap2_tbx_reader =
         tbx::Reader::from_path(hap2_tabix).expect(&format!("Could not open {}", hap2_tabix));
-    
+
     let start = alignments.len() / threads * index;
     let end = if index != threads - 1 {
         alignments.len() / threads * (index + 1)
@@ -90,17 +112,33 @@ fn count_kmers(alignments: &mut Vec<Data>, sequences: &HashMap<String, Vec<u8>>,
             /*if read.read_name == "m64288_220429_181717/197/ccs" {
                 eprintln!("{}", String::from_utf8_lossy(value));
             }*/
-            let (ref_kmer_cnt, read_kmer_cnt) = count_kmers_tbx(read, value, &mut hap1_tbx_reader, &mut hap2_tbx_reader, hap1_set, hap2_set, kmer_size);
+            let (ref_kmer_cnt, read_kmer_cnt) = count_kmers_tbx(
+                read,
+                value,
+                &mut hap1_tbx_reader,
+                &mut hap2_tbx_reader,
+                hap1_set,
+                hap2_set,
+                kmer_size,
+            );
             // eprintln!("kmer_count: {} {} {}", read.read_name, ref_kmer_cnt, read_kmer_cnt);
             read.rk_cnt = ref_kmer_cnt;
             read.pk_sk_cnt = read_kmer_cnt;
         } else {
             continue;
-        }        
+        }
     }
 }
 
-fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tbx::Reader, hap2_tbx_reader: &mut tbx::Reader, hap1_set: &HashSet<String>, hap2_set: &HashSet<String>, kmer_size: u32) -> (usize, usize) {
+fn count_kmers_tbx(
+    read: &mut Data,
+    read_seq: &Vec<u8>,
+    hap1_tbx_reader: &mut tbx::Reader,
+    hap2_tbx_reader: &mut tbx::Reader,
+    hap1_set: &HashSet<String>,
+    hap2_set: &HashSet<String>,
+    kmer_size: u32,
+) -> (usize, usize) {
     let tbx_reader = if hap1_set.contains(&read.reference_name) {
         &mut *hap1_tbx_reader
     } else if hap2_set.contains(&read.reference_name) {
@@ -113,32 +151,38 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
         Ok(tid) => tid,
         Err(_) => {
             return (0, 0);
-        },
+        }
     };
 
-    let result: Result<(), Error> = tbx_reader.fetch(tid as u64, read.reference_start as u64, read.reference_end as u64);
+    let result: Result<(), Error> = tbx_reader.fetch(
+        tid as u64,
+        read.reference_start as u64,
+        read.reference_end as u64,
+    );
     match result {
         Ok(_) => (),
         Err(_) => {
             return (0, 0);
-        },
+        }
     }
 
     let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
     let del_ref_pos = get_deletion_ref_pos(&read.cigar_tuples, read.reference_start);
     let delimiter: u8 = 9;
-    let read_strand = if read.is_reverse {
-        "-"
-    } else {
-        "+"
-    };
+    let read_strand = if read.is_reverse { "-" } else { "+" };
     let mut ref_kmer_cnt = 0;
     let mut read_kmer_cnt = 0;
     for tbx_record in tbx_reader.records() {
         let in_record = tbx_record.unwrap();
         let chunks: Vec<_> = in_record.split(|&x| x == delimiter).collect();
-        let start: i64 = String::from_utf8_lossy(chunks[1]).to_string().parse().unwrap();
-        let end: i64 = String::from_utf8_lossy(chunks[2]).to_string().parse().unwrap();
+        let start: i64 = String::from_utf8_lossy(chunks[1])
+            .to_string()
+            .parse()
+            .unwrap();
+        let end: i64 = String::from_utf8_lossy(chunks[2])
+            .to_string()
+            .parse()
+            .unwrap();
         let strand = String::from_utf8_lossy(chunks[4]).to_string();
         let kmer_seq = String::from_utf8_lossy(chunks[5]).to_string();
         if start < read.reference_start {
@@ -163,13 +207,12 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
         }
     }
 
-
     let it_start: usize = if read.is_reverse {
         read_seq.len() - read.read_end as usize
     } else {
         read.read_start as usize
     };
-    let it_end: usize = if read.is_reverse{
+    let it_end: usize = if read.is_reverse {
         read_seq.len() - read.read_start as usize
     } else {
         read.read_end as usize
@@ -189,7 +232,6 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
             String::from_utf8_lossy(&seq[i..(i + k)].to_vec()).to_string()
         };
 
-        
         if let Some(value) = tbx_sequences.get(&slice) {
             if get_current_ref_pos(
                 &read.cigar_tuples,

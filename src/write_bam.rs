@@ -1,15 +1,14 @@
-use rust_htslib::{bam, bam::Read, htslib};
 use rust_htslib::bam::record::{Cigar, CigarString, CigarStringView};
+use rust_htslib::{bam, bam::Read, htslib};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 
-use bam_refiner::Data;
-use bam_refiner::get_read_name_list;
-use bam_refiner::reverse_complement;
-use bam_refiner::get_read_position;
 use bam_refiner::get_cigartuples;
-
+use bam_refiner::get_read_name_list;
+use bam_refiner::get_read_position;
+use bam_refiner::reverse_complement;
+use bam_refiner::Data;
 
 pub fn run(
     bamfile: &str,
@@ -20,9 +19,10 @@ pub fn run(
     hap1_list: &str,
     hap2_list: &str,
 ) -> Result<(), Box<dyn Error>> {
-
-    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
-    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
+    let hap1_set: HashSet<String> =
+        get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
+    let hap2_set: HashSet<String> =
+        get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
 
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
     let header = bam::Header::from_template(bam.header());
@@ -31,14 +31,14 @@ pub fn run(
 
     let header = bam.header().clone();
 
-    let filter_closure: Box<dyn Fn(&bam::Record) -> bool> = Box::new(|record: &bam::Record| {
-        record.flags() & htslib::BAM_FUNMAP as u16 == 0
-    });
+    let filter_closure: Box<dyn Fn(&bam::Record) -> bool> =
+        Box::new(|record: &bam::Record| record.flags() & htslib::BAM_FUNMAP as u16 == 0);
 
-    for record in bam.records()
+    for record in bam
+        .records()
         .map(|r| r.expect("Failure parsing Bam file"))
-        .filter(|read| filter_closure(read)) {
-        
+        .filter(|read| filter_closure(read))
+    {
         // read name from bam
         let read_id: String = String::from_utf8_lossy(record.qname()).to_string();
 
@@ -123,21 +123,40 @@ pub fn run(
                     }
                 }
                 // qname: &[u8], cigar: Option<&CigarString>, query_sequence: &[u8], quality: &[u8]
-                let new_cigar = make_new_cigar(record.cigar(), record.is_secondary(), alignment.is_supplementary);
-                let new_seq = make_new_seq(&sequence, alignment.is_reverse, record.is_secondary(), alignment.is_supplementary, &new_cigar);
-                let new_qual = make_new_qual(&quality, alignment.is_reverse, record.is_secondary(), alignment.is_supplementary, &new_cigar);
+                let new_cigar = make_new_cigar(
+                    record.cigar(),
+                    record.is_secondary(),
+                    alignment.is_supplementary,
+                );
+                let new_seq = make_new_seq(
+                    &sequence,
+                    alignment.is_reverse,
+                    record.is_secondary(),
+                    alignment.is_supplementary,
+                    &new_cigar,
+                );
+                let new_qual = make_new_qual(
+                    &quality,
+                    alignment.is_reverse,
+                    record.is_secondary(),
+                    alignment.is_supplementary,
+                    &new_cigar,
+                );
 
-                
                 out_record.set(
                     record.qname(),
                     Some(&CigarString(new_cigar)),
                     &new_seq,
                     &new_qual,
                 );
-    
+
                 // mapping quality
                 let max_kmer_value = alignment.pk_sk_vec.iter().max().unwrap();
-                let count_of_max = alignment.pk_sk_vec.iter().filter(|&x| *x == *max_kmer_value).count();
+                let count_of_max = alignment
+                    .pk_sk_vec
+                    .iter()
+                    .filter(|&x| *x == *max_kmer_value)
+                    .count();
                 let mapq: u8 = 60 / count_of_max as u8;
                 out_record.set_mapq(mapq);
 
@@ -151,7 +170,7 @@ pub fn run(
                 }
 
                 // New tag: HP
-                if *max_kmer_value == 0  {
+                if *max_kmer_value == 0 {
                     let aux_hp_tag = bam::record::Aux::U8(0);
                     out_record.push_aux(b"HP", aux_hp_tag).unwrap();
                 } else {
@@ -168,11 +187,21 @@ pub fn run(
 
                 // New tag: PK and SK
                 if alignment.is_supplementary {
-                    let supp_kmers: String = alignment.pk_sk_vec.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                    let supp_kmers: String = alignment
+                        .pk_sk_vec
+                        .iter()
+                        .map(|&x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",");
                     let supp_kmers_tag = bam::record::Aux::String(&supp_kmers);
                     out_record.push_aux(b"SK", supp_kmers_tag).unwrap();
                 } else {
-                    let prim_kmers: String = alignment.pk_sk_vec.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                    let prim_kmers: String = alignment
+                        .pk_sk_vec
+                        .iter()
+                        .map(|&x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",");
                     let prim_kmers_tag = bam::record::Aux::String(&prim_kmers);
                     out_record.push_aux(b"PK", prim_kmers_tag).unwrap();
                 }
@@ -190,7 +219,11 @@ pub fn run(
     Ok(())
 }
 
-fn make_new_cigar(cigar: CigarStringView, input_is_secondary: bool, output_is_supplementary: bool) -> Vec<Cigar> {
+fn make_new_cigar(
+    cigar: CigarStringView,
+    input_is_secondary: bool,
+    output_is_supplementary: bool,
+) -> Vec<Cigar> {
     let mut new_cigar: Vec<Cigar> = Vec::new();
 
     for op in cigar.iter() {
@@ -201,14 +234,20 @@ fn make_new_cigar(cigar: CigarStringView, input_is_secondary: bool, output_is_su
                 } else {
                     new_cigar.push(*op);
                 }
-            },
+            }
             _ => new_cigar.push(*op),
         }
     }
     new_cigar
 }
 
-fn make_new_seq(sequence: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, output_is_supplementary: bool, cigarstring: &Vec<Cigar>) -> Vec<u8> {
+fn make_new_seq(
+    sequence: &Vec<u8>,
+    is_reverse: bool,
+    input_is_secondary: bool,
+    output_is_supplementary: bool,
+    cigarstring: &Vec<Cigar>,
+) -> Vec<u8> {
     let mut start: usize = 0;
     let mut end: usize = sequence.len();
     let seq = if is_reverse {
@@ -216,7 +255,7 @@ fn make_new_seq(sequence: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, 
     } else {
         sequence.to_vec()
     };
-    
+
     for (i, op) in cigarstring.iter().enumerate() {
         match op {
             Cigar::SoftClip(len) => {
@@ -227,7 +266,7 @@ fn make_new_seq(sequence: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, 
                         end = end - *len as usize;
                     }
                 }
-            },
+            }
             Cigar::HardClip(len) => {
                 if i == 0 {
                     start = *len as usize;
@@ -242,7 +281,13 @@ fn make_new_seq(sequence: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, 
     seq[start..end].to_vec()
 }
 
-fn make_new_qual(quality: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, output_is_supplementary: bool, cigarstring: &Vec<Cigar>) -> Vec<u8> {
+fn make_new_qual(
+    quality: &Vec<u8>,
+    is_reverse: bool,
+    input_is_secondary: bool,
+    output_is_supplementary: bool,
+    cigarstring: &Vec<Cigar>,
+) -> Vec<u8> {
     let mut start: usize = 0;
     let mut end: usize = quality.len();
 
@@ -261,7 +306,7 @@ fn make_new_qual(quality: &Vec<u8>, is_reverse: bool, input_is_secondary: bool, 
                         end = end - *len as usize;
                     }
                 }
-            },
+            }
             Cigar::HardClip(len) => {
                 if i == 0 {
                     start = *len as usize;

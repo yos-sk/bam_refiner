@@ -1,10 +1,10 @@
+use flate2::read::MultiGzDecoder;
 use rust_htslib::bam;
+use std::collections::HashSet;
+use std::error::Error;
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::error::Error;
-use flate2::read::MultiGzDecoder;
-use std::fs::File;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Data {
@@ -19,7 +19,7 @@ pub struct Data {
     pub is_supplementary: bool,
     pub cigar_tuples: Vec<(u8, u32)>,
     pub rk_cnt: usize,
-    pub pk_sk_cnt: usize, 
+    pub pk_sk_cnt: usize,
     pub pk_sk_vec: Vec<usize>,
 }
 
@@ -32,7 +32,7 @@ pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
             b'T' => b'A',
             b'C' => b'G',
             b'G' => b'C',
-            _ => base, 
+            _ => base,
         };
 
         complement_seq.push(complement_base);
@@ -41,7 +41,6 @@ pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
     complement_seq
 }
 
-
 pub fn get_cigartuples(record: &bam::Record) -> Vec<(u8, u32)> {
     let mut cigartuples: Vec<(u8, u32)> = vec![];
 
@@ -49,31 +48,31 @@ pub fn get_cigartuples(record: &bam::Record) -> Vec<(u8, u32)> {
         match op {
             bam::record::Cigar::Match(len) => {
                 cigartuples.push((0, *len));
-            },
+            }
             bam::record::Cigar::Ins(len) => {
                 cigartuples.push((1, *len));
-            },
+            }
             bam::record::Cigar::Del(len) => {
                 cigartuples.push((2, *len));
-            },
+            }
             bam::record::Cigar::RefSkip(len) => {
                 cigartuples.push((3, *len));
-            },
+            }
             bam::record::Cigar::SoftClip(len) => {
                 cigartuples.push((4, *len));
-            },
+            }
             bam::record::Cigar::HardClip(len) => {
                 cigartuples.push((5, *len));
-            },
+            }
             bam::record::Cigar::Pad(len) => {
                 cigartuples.push((6, *len));
-            },
+            }
             bam::record::Cigar::Equal(len) => {
                 cigartuples.push((7, *len));
-            },
+            }
             bam::record::Cigar::Diff(len) => {
                 cigartuples.push((8, *len));
-            }, 
+            }
             /*
             bam::record::Cigar::Back(len) => {
                 cigaråtuples.push((9, len));
@@ -115,9 +114,7 @@ pub fn get_read_position(cigartuples: &Vec<(u8, u32)>) -> (u32, u32, u32) {
     (read_start, read_end, read_start + read_length)
 }
 
-pub fn get_deletion_ref_pos(cigartuples: &Vec<(u8, u32)>,
-    ref_start: i64,
-) -> Vec<(u32, u32)> {
+pub fn get_deletion_ref_pos(cigartuples: &Vec<(u8, u32)>, ref_start: i64) -> Vec<(u32, u32)> {
     let mut ref_length: u32 = 0;
     let mut del_ref_db: Vec<(u32, u32)> = Vec::new();
 
@@ -126,7 +123,7 @@ pub fn get_deletion_ref_pos(cigartuples: &Vec<(u8, u32)>,
             0 | 7 | 8 => {
                 // read_length += len;
                 ref_length += len;
-            },
+            }
             /*
             1 | 4 | 5 => {
                 read_length += len;
@@ -137,7 +134,7 @@ pub fn get_deletion_ref_pos(cigartuples: &Vec<(u8, u32)>,
                 let end = start + len - 1;
                 del_ref_db.push((start, end));
                 ref_length += len;
-            },
+            }
             _ => (),
         }
     }
