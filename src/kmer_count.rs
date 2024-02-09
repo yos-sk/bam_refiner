@@ -162,10 +162,18 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
             }
         }
     }
-    
 
-    let it_start: usize = read.read_start as usize;
-    let it_end: usize = read.read_end as usize;
+
+    let it_start: usize = if read.is_reverse {
+        read_seq.len() - read.read_end as usize
+    } else {
+        read.read_start as usize
+    };
+    let it_end: usize = if read.is_reverse{
+        read_seq.len() - read.read_start as usize
+    } else {
+        read.read_end as usize
+    };
     let k: usize = kmer_size as usize;
     let seq = if read.is_reverse {
         reverse_complement(&read_seq)
@@ -180,6 +188,7 @@ fn count_kmers_tbx(read: &mut Data, read_seq: &Vec<u8>, hap1_tbx_reader: &mut tb
             // eprintln!("{} {} {} {} {:?} {:?}", i, i + k, read_seq.len(), read.read_name, read.is_secondary, read.is_supplementary);
             String::from_utf8_lossy(&seq[i..(i + k)].to_vec()).to_string()
         };
+
         
         if let Some(value) = tbx_sequences.get(&slice) {
             if get_current_ref_pos(
