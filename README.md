@@ -37,8 +37,7 @@ singularity exec bam_refiner_latest.sif \
 
 ### 2. Step by step
 #### Step 1: Extract haplotype-specific unique k-mer
-You can use [meryl](https://github.com/marbl/meryl.git) to count kmers.\
-You can also use [kmer_locate](https://github.com/yos-sk/kmer_locate.git) to search kmer positions. 
+You can use [meryl](https://github.com/marbl/meryl.git) to count kmers. 
 
 ```
 for hap in hap1 hap2
@@ -61,8 +60,10 @@ done
 
 for hap in hap1 hap2
 do
-    python ${path-to-kmer_locate}/script/kmercounts2fasta.py ${hap}.cnt.uniq.tsv.gz > unique_kmerCounts_cnt_${hap}.fa ${hap}
-    kmer_locate --kmer-path unique_kmerCounts_cnt_${hap}.fa --input-file ${hap}.contig.fa --kmer-size 21 | sort -k 1,1 -k 2,2n > ${hap}_cnt_kmerposition.bed
+    bam_refiner locate-kmers \
+        -i ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv.gz \
+        -f ${hap}_contig \
+        -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/${hap}_cnt_kmerposition.bed
     bgzip -f ${hap}_cnt_kmerposition.bed
     tabix -p bed ${hap}_cnt_kmerposition.bed.gz
 done
@@ -92,7 +93,7 @@ split_bam split \
 #### Step 4: Refine bam file
 
 ```
-./target/release/bam_refiner \
+./target/release/bam_refiner refine \
     --input-bam ${INPUT_BAM} \
     --output-bam ${OUTPUT_DIR}/${OUTPUT_BAM} \
     --hap1-tabix hap1_cnt_kmerposition.bed.gz \
