@@ -96,7 +96,7 @@ then
         -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
         ${WORK_DIR}/split/*.refined.bam
 else
-    bam_refiner \
+    bam_refiner refine \
         --input-bam ${OUTPUT_BAM_PREFIX}.bam \
         --output-bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
         --hap1-tabix ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz \
