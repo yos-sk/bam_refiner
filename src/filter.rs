@@ -321,7 +321,7 @@ fn process_read_alignments(
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
         let mut ref_kmer_cnt: usize = 0;
-        let read_id = String::from_utf8_lossy(record.qname()).to_string();
+        //let read_id = String::from_utf8_lossy(record.qname()).to_string();
         let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
         for tbx_record in tbx_reader.records() {
             let in_record = tbx_record.unwrap();
