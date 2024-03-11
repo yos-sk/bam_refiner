@@ -44,13 +44,17 @@ done
 
 
 mkdir -p ${OUTPUT_DIR}
-python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap1.cnt.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap1.fa hap1
-kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap1.fa --input-file ${hap1_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
+bam_refiner locate-kmers \
+    -i ${WORK_DIR}/meryl/hap1.cnt.uniq.tsv.gz \
+    -f ${hap1_contig} \
+    -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
 bgzip -f ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz
 
-python3 /tools/kmer_locate/script/kmercounts2fasta.py ${WORK_DIR}/meryl/hap2.cnt.uniq.tsv.gz > ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap2.fa hap2
-kmer_locate --kmer-path ${WORK_DIR}/meryl/unique_kmerCounts_cnt_hap2.fa --input-file ${hap2_contig} --kmer-size 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
+bam_refiner locate-kmers \
+    -i ${WORK_DIR}/meryl/hap2.cnt.uniq.tsv.gz \
+    -f ${hap1_contig} \
+    -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
 bgzip -f ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz
 
