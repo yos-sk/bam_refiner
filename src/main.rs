@@ -1,46 +1,94 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::process;
 
+mod kmer_locator;
 mod filter;
 
 #[derive(Parser)]
 #[command(author = "Yoshitaka Sakamoto", version = "0.3.3", about = "Refine alignments by unique kmers.", long_about = None)]
 struct Arguments {
-    #[arg(short = 'i', long)]
-    input_bam: String,
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    #[arg(short = 'o', long)]
-    output_bam: String,
+#[derive(Subcommand)]
+enum Commands {
+    LocateKmers {
+        #[arg(short = 'i', long)]
+        kmer_file: String,
 
-    #[arg(short = 't', long)]
-    hap1_tabix: String,
+        #[arg(short = 'f', long)]
+        input_fasta: String,
 
-    #[arg(short = 'u', long)]
-    hap2_tabix: String,
+        #[arg(short = 'k', long)]
+        kmer_size: usize,
+    },
 
-    #[arg(short = 'l', long)]
-    hap1_list: String,
+    Refine {
+        #[arg(short = 'i', long)]
+        input_bam: String,
 
-    #[arg(short = 'm', long)]
-    hap2_list: String,
+        #[arg(short = 'o', long)]
+        output_bam: String,
 
-    #[arg(short = 'k', long)]
-    kmer_size: u32,
+        #[arg(short = 't', long)]
+        hap1_tabix: String,
+
+        #[arg(short = 'u', long)]
+        hap2_tabix: String,
+
+        #[arg(short = 'l', long)]
+        hap1_list: String,
+
+        #[arg(short = 'm', long)]
+        hap2_list: String,
+
+        #[arg(short = 'k', long)]
+        kmer_size: u32,
+    },
 }
 
 fn main() {
     let arguments = Arguments::parse();
-    if let Err(error) = filter::run(
-        &arguments.input_bam,
-        &arguments.output_bam,
-        &arguments.hap1_tabix,
-        &arguments.hap2_tabix,
-        &arguments.hap1_list,
-        &arguments.hap2_list,
-        arguments.kmer_size,
-    ) {
-        eprintln!("{}", error);
-        process::exit(1);
-    }
+
+    match &arguments.command {
+        Commands::LocateKmers {
+            kmer_file,
+            input_fasta,
+            kmer_size,
+        } => {
+            if let Err(error) = kmer_locator::run(
+                kmer_file,
+                input_fasta,
+                *kmer_size,
+            ) {
+                eprintln!("{}", error);
+                process::exit(1);
+            }
+        },
+
+        Commands::Refine {
+            input_bam,
+            output_bam,
+            hap1_tabix,
+            hap2_tabix,
+            hap1_list,
+            hap2_list,
+            kmer_size,
+        } => {
+            if let Err(error) = filter::run(
+                input_bam,
+                output_bam,
+                hap1_tabix,
+                hap2_tabix,
+                hap1_list,
+                hap2_list,
+                *kmer_size,
+            ) {
+                eprintln!("{}", error);
+                process::exit(1);
+            }
+        },
+    }    
 }
 
