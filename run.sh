@@ -54,7 +54,7 @@ tabix -p bed ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz
 bam_refiner locate-kmers \
     -i ${WORK_DIR}/meryl/hap2.cnt.uniq.tsv.gz \
     -f ${hap1_contig} \
-    -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
+    -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
 bgzip -f ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz
 
