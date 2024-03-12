@@ -74,7 +74,12 @@ You should sort the bam file by read name for [bam_refiner](https://github.com/y
 
 ```
 cat hap1_contig.fa hap2_contig.fa > reference.fa
+
+# ONT
 minimap2 -t 16 -ax asm10 reference.fa input.fastq | samtools view --Shb > output.unsorted
+# HiFi
+minimap2 -t 16 -ax asm5 reference.fa input.fastq | samtools view --Shb > output.unsorted
+
 samtools sort -@ 16 -m 2G -n output.unsorted -o output.bam
 samtools index output.bam
 ```
