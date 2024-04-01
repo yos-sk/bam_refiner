@@ -3,6 +3,7 @@ use std::process;
 
 mod kmer_locator;
 mod filter;
+mod kmer_ratio;
 
 #[derive(Parser)]
 #[command(author = "Yoshitaka Sakamoto", version = "0.3.3", about = "Refine alignments by unique kmers.", long_about = None)]
@@ -46,6 +47,13 @@ enum Commands {
         #[arg(short = 'k', long)]
         kmer_size: u32,
     },
+    KmerRatio {
+        #[clap(value_parser, default_value = "-")]
+        input_bam: String,
+
+        #[clap(short, long, value_parser, default_value_t = 4)]
+        threads: usize,
+    },
 }
 
 fn main() {
@@ -87,6 +95,19 @@ fn main() {
             ) {
                 eprintln!("{}", error);
                 process::exit(1);
+            }
+        },
+
+        Commands::KmerRatio {
+            input_bam,
+            threads,
+        } => {
+            if let Err(error) = kmer_ratio::run(
+                input_bam,
+                *threads,
+            ) {
+                eprintln!("{}", error);
+                process::exit(1); 
             }
         },
     }    
