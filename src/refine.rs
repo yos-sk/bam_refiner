@@ -16,7 +16,7 @@ use bam_refiner::reverse_complement;
 use bam_refiner::open_file;
 use bam_refiner::get_deletion_ref_pos;
 
-#[path = "./write_bam.rs"]
+#[path = "./refine/write_bam.rs"]
 mod write_bam;
 
 pub fn run(

@@ -5,6 +5,21 @@ use std::error::Error;
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
 
+#[derive(Clone)]
+pub struct NewRecord {
+    pub reference_name: String,
+    pub ref_start: i64,
+    pub ref_end: i64,
+    pub read_start: u32,
+    pub read_end: u32,
+    pub read_strand: String,
+    pub is_secondary: usize,
+    pub is_supplementary: usize,
+    pub kmer_cnt: usize,
+    pub ref_kmer_cnt: usize,
+    pub flag: usize,
+    pub kmers_list: Vec<usize>,
+}
 
 pub fn reverse_complement(sequence: &str) -> String {
     // complement

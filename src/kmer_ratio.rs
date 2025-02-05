@@ -48,6 +48,7 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+
 fn get_rk_tag(record: &bam::Record) -> u32 {
     match record.aux(b"RK") {
         Ok(value) => match value {

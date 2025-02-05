@@ -1,9 +1,10 @@
+mod kmer_locator;
+mod kmer_ratio;
+mod refine;
+mod single;
+
 use clap::{Parser, Subcommand};
 use std::process;
-
-mod kmer_locator;
-mod filter;
-mod kmer_ratio;
 
 #[derive(Parser)]
 #[command(author = "Yoshitaka Sakamoto", version = "0.3.3", about = "Refine alignments by unique kmers.", long_about = None)]
@@ -14,6 +15,14 @@ struct Arguments {
 
 #[derive(Subcommand)]
 enum Commands {
+    KmerRatio {
+        #[clap(value_parser, default_value = "-")]
+        input_bam: String,
+
+        #[clap(short, long, value_parser, default_value_t = 4)]
+        threads: usize,
+    },
+
     LocateKmers {
         #[arg(short = 'i', long)]
         kmer_file: String,
@@ -47,12 +56,19 @@ enum Commands {
         #[arg(short = 'k', long)]
         kmer_size: u32,
     },
-    KmerRatio {
-        #[clap(value_parser, default_value = "-")]
+
+    Single {
+        #[arg(short = 'i', long)]
         input_bam: String,
 
-        #[clap(short, long, value_parser, default_value_t = 4)]
-        threads: usize,
+        #[arg(short = 'o', long)]
+        output_bam: String,
+
+        #[arg(short = 't', long)]
+        ref_tabix: String,
+
+        #[arg(short = 'k', long)]
+        kmer_size: u32,
     },
 }
 
@@ -60,6 +76,19 @@ fn main() {
     let arguments = Arguments::parse();
 
     match &arguments.command {
+        Commands::KmerRatio {
+            input_bam,
+            threads,
+        } => {
+            if let Err(error) = kmer_ratio::run(
+                input_bam,
+                *threads,
+            ) {
+                eprintln!("{}", error);
+                process::exit(1); 
+            }
+        },
+        
         Commands::LocateKmers {
             kmer_file,
             input_fasta,
@@ -84,7 +113,7 @@ fn main() {
             hap2_list,
             kmer_size,
         } => {
-            if let Err(error) = filter::run(
+            if let Err(error) = refine::run(
                 input_bam,
                 output_bam,
                 hap1_tabix,
@@ -98,18 +127,23 @@ fn main() {
             }
         },
 
-        Commands::KmerRatio {
+        Commands::Single {
             input_bam,
-            threads,
+            output_bam,
+            ref_tabix,
+            kmer_size,
         } => {
-            if let Err(error) = kmer_ratio::run(
+            if let Err(error) = single::run(
                 input_bam,
-                *threads,
+                output_bam,
+                ref_tabix,
+                *kmer_size,
             ) {
                 eprintln!("{}", error);
-                process::exit(1); 
+                process::exit(1);
             }
         },
+
     }    
 }
 

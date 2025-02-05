@@ -1,0 +1,147 @@
+#!/bin/bash
+
+set -xv
+set -o errexit
+set -o nounset
+set -o pipefail
+
+while getopts "b:df:l:m:o:pr:s:t:" opt; do
+  case $opt in
+    b) BAM=$OPTARG ;;
+    d) DEBUG="true" ;;
+    f) FASTQ=$OPTARG ;;
+    l) REGIONS=$OPTARG ;;
+    m) MINIMAP_OPTION=$OPTARG ;;
+    o) OUTPUT_DIR=$OPTARG ;;
+    p) OPTION_SPLIT="true" ;;
+    r) REFERENCE=$OPTARG ;;
+    s) SAMPLE=$OPTARG ;;
+    t) THREAD=$OPTARG ;;
+    *) echo "Invalid option"; exit 1 ;;
+  esac
+done
+
+if [ -z "${FASTQ:-}" ] && [ -z "${BAM:-}" ]; then
+    echo "FASTQ/BAM file is not given. Please set -f {FASTQ_FILE} with mapping or -b {BAM_FILE} without mapping"; exit 1
+fi
+
+if [ -z "${DEBUG:-}" ]; then
+    echo "Do not remove a workspace"
+    DEBUG="false"
+fi
+
+if [ -z "${REGIONS:-}" ]; then
+    echo "Target region list is not given. Pleaset -l {REGION_LIST}"; exit 1
+fi
+
+if [ -z "${MINIMAP2_OPTION:-}" ] && [ -z "${BAM:-}" ]; then
+    echo "Minimap2 option is not given. Please set -m {MINIMAP2_OPTION}"; exit 1
+fi
+
+if [ -z "${OUTPUT_DIR:-}" ]; then
+    echo "Output directory is not given. Please set -o {OUTPUT_DIR}"; exit 1
+fi
+
+if [ -z "${OPTION_SPLIT:-}" ]; then
+    echo "Split option is not given. Bam_refiner will be performed without splitting a BAM file"
+    OPTION_SPLIT="false"
+fi
+
+if [ -z "${REFERENCE:-}" ]; then
+    echo "Reference genome is not given. Please set -r {REFERENCE}"; exit 1
+fi
+
+if [ -z "${SAMPLE:-}" ]; then
+    echo "Sample name is not given. Please set -s {SAMPLE}"; exit 1
+fi
+
+if [ -z "${THREAD:-}" ]; then
+    echo "Thread number is not given. Thread number is set to default (8)"
+    THREAD=8
+fi
+
+WORK_DIR=${OUTPUT_DIR}/workspace
+mkdir -p ${WORK_DIR} 
+
+# Step1: Mapping
+if [ -z ${BAM:-} ] && [ ! -z ${FASTQ:-} ]; then
+    OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
+    minimap2 -t ${THREAD} ${MINIMAP2_OPTION} ${REFERENCE} ${FASTQ} | samtools view -@ ${THREAD}-Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+    samtools sort -@ ${THREAD} -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
+    rm ${OUTPUT_BAM_PREFIX}.unsorted
+    BAM=${OUTPUT_BAM_PREFIX}.bam
+fi
+
+# Step2: Extract reference sequences of target regions
+if [ ! -f ${REFERENCE}.fai ]; then
+    samtools faidx ${REFERENCE}
+fi
+samtools faidx ${REFERENCE} -o ${WORK_DIR}/target_regions.fa -r ${REGIONS}
+
+# Step3: Extract region-specific k-mer
+mkdir -p ${WORK_DIR}/meryl
+if [ -d ${WORK_DIR}/meryl/target.meryl ]; then
+    rm -r ${WORK_DIR}/meryl/target.meryl
+fi
+meryl count k=21 threads=${THREAD} ${WORK_DIR}/target_regions.fa output ${WORK_DIR}/meryl/target.meryl
+meryl print threads=${THREAD} ${WORK_DIR}/meryl/target.meryl > ${WORK_DIR}/meryl/target_kmers.tsv
+
+awk '{if ($2 == 1) print}' ${WORK_DIR}/meryl/target_kmers.tsv > ${WORK_DIR}/meryl/target_kmers_uniq.tsv
+gzip -f ${WORK_DIR}/meryl/target_kmers_uniq.tsv
+
+bam_refiner locate-kmers \
+    -i ${WORK_DIR}/meryl/target_kmers_uniq.tsv.gz \
+    -f ${REFERENCE} \
+    -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/kmerposition.bed
+bgzip -f ${OUTPUT_DIR}/kmerposition.bed
+tabix -p bed ${OUTPUT_DIR}/kmerposition.bed.gz
+
+# Step 4: Refine BAM file
+if [ $OPTION_SPLIT = "true" ]
+then
+    mkdir -p ${WORK_DIR}/split
+    SIZE=`split_bam size --input-file ${BAM}`
+    split_bam split \
+        --input-file ${BAM} \
+        --output-dir ${WORK_DIR}/split \
+        --input-size ${SIZE} \
+        --num-split ${THREAD}
+
+    for i in $(seq 0 $(( ${THREAD} - 1))); do
+        bam_refiner single \
+            --input-bam ${WORK_DIR}/split/${i}.bam \
+            --output-bam ${WORK_DIR}/split/${i}.refined.bam \
+            --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
+            --kmer-size 21 \
+            1>${WORK_DIR}/split/${i}.bam_refiner.tsv 2>${WORK_DIR}/split/${i}.bam_refiner.log &
+    done
+    wait
+    
+    cat ${WORK_DIR}/split/*.bam_refiner.tsv > ${OUTPUT_DIR}/bam_refiner_result.tsv
+    cat ${WORK_DIR}/split/*.bam_refiner.log > ${OUTPUT_DIR}/bam_refiner.log
+    samtools merge \
+        -@ ${THREAD} \
+        -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
+        ${WORK_DIR}/split/*.refined.bam
+else
+    bam_refiner single \
+        --input-bam ${BAM} \
+        --output-bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
+        --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
+        --kmer-size 21 \
+        1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
+fi
+
+samtools sort \
+    -@ ${THREAD} \
+    -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
+    ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
+samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
+rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
+
+gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
+gzip -f ${OUTPUT_DIR}/bam_refiner.log
+
+if [ ${DEBUG} = "false"]; then
+    rm -rf ${WORK_DIR}
+fi
