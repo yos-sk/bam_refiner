@@ -1,25 +1,59 @@
 #!/bin/bash
 
-SAMPLE=$1
-hap1_contig=$2
-hap2_contig=$3
-FASTQ=$4
-OPTION_SPLIT=$5
-WORK_DIR=$6
-OUTPUT_DIR=$7
-THREAD=$8
-DATA=$9
-
 set -xv
 set -o errexit
 set -o nounset
 set -o pipefail
 
+while getopts "b:df:o:pr:s:t:u:" opt; do
+  case $opt in
+    b) BAM=$OPTARG ;;
+    d) DEBUG="true" ;;
+    f) FASTQ=$OPTARG ;;
+    h) HAP1_CONTIG=$OPTARG ;;
+    i) HAP2_CONTIG=$OPTARG ;;
+    o) OUTPUT_DIR=$OPTARG ;;
+    p) OPTION_SPLIT="true" ;;
+    s) SAMPLE=$OPTARG ;;
+    t) THREAD=$OPTARG ;;
+    u) DATA=$OPRARG ;;
+    *) echo "Invalid option"; exit 1 ;;
+  esac
+done
+
+if [ -z "${FASTQ:-}" ] && [ -z "${BAM:-}" ]; then
+    echo "FASTQ/BAM file is not given. Please set -f {FASTQ_FILE} with mapping or -b {BAM_FILE} without mapping"; exit 1
+fi
+
+if [ -z "${DEBUG:-}" ]; then
+    echo "Do not remove a workspace"
+    DEBUG="false"
+fi
+
+if [ -z "${OUTPUT_DIR:-}" ]; then
+    echo "Output directory is not given. Please set -o {OUTPUT_DIR}"; exit 1
+fi
+
+if [ -z "${OPTION_SPLIT:-}" ]; then
+    echo "Split option is not given. Bam_refiner will be performed without splitting a BAM file"
+    OPTION_SPLIT="false"
+fi
+
+if [ -z "${REFERENCE:-}" ]; then
+    echo "Reference genome is not given. Please set -r {REFERENCE}"; exit 1
+fi
+
+if [ -z "${SAMPLE:-}" ]; then
+    echo "Sample name is not given. Please set -s {SAMPLE}"; exit 1
+fi
+
+WORK_DIR=${OUTPUT_DIR}/workspace
+mkdir -p ${WORK_DIR}
 
 # Step1: Mapping
 mkdir -p ${WORK_DIR} 
 OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
-cat ${hap1_contig} ${hap2_contig} > ${WORK_DIR}/reference.fa
+cat ${HAP1_CONTIG} ${HAP2_CONTIG} > ${WORK_DIR}/reference.fa
 if [ ${DATA} == "hifi" ]; then
     minimap2 -t ${THREAD} -ax asm5 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
 else
@@ -30,8 +64,8 @@ rm ${OUTPUT_BAM_PREFIX}.unsorted
 
 # Step2: Extract haplotype-specific unique k-mer
 mkdir -p ${WORK_DIR}/meryl
-meryl count k=21 threads=${THREAD} ${hap1_contig} output ${WORK_DIR}/meryl/hap1.meryl
-meryl count k=21 threads=${THREAD} ${hap2_contig} output ${WORK_DIR}/meryl/hap2.meryl
+meryl count k=21 threads=${THREAD} ${HAP1_CONTIG} output ${WORK_DIR}/meryl/hap1.meryl
+meryl count k=21 threads=${THREAD} ${HAP2_CONTIG} output ${WORK_DIR}/meryl/hap2.meryl
 
 
 meryl difference ${WORK_DIR}/meryl/hap1.meryl ${WORK_DIR}/meryl/hap2.meryl output ${WORK_DIR}/meryl/hap1.uniq.meryl
@@ -51,23 +85,23 @@ done
 mkdir -p ${OUTPUT_DIR}
 bam_refiner locate-kmers \
     -i ${WORK_DIR}/meryl/hap1.cnt.uniq.tsv.gz \
-    -f ${hap1_contig} \
+    -f ${HAP1_CONTIG} \
     -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
 bgzip -f ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/hap1_cnt_kmerposition.bed.gz
 
 bam_refiner locate-kmers \
     -i ${WORK_DIR}/meryl/hap2.cnt.uniq.tsv.gz \
-    -f ${hap1_contig} \
+    -f ${HAP1_CONTIG} \
     -k 21 | sort -k 1,1 -k 2,2n > ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
 bgzip -f ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/hap2_cnt_kmerposition.bed.gz
 
 # Step 3; List up contig names
-grep ">" ${hap1_contig} | sed s/\>// > ${OUTPUT_DIR}/hap1_list.txt
-gzip ${OUTPUT_DIR}/hap1_list.txt
-grep ">" ${hap2_contig} | sed s/\>// > ${OUTPUT_DIR}/hap2_list.txt
-gzip ${OUTPUT_DIR}/hap2_list.txt
+grep ">" ${HAP1_CONTIG} | sed s/\>// > ${OUTPUT_DIR}/hap1_list.txt
+gzip -f ${OUTPUT_DIR}/hap1_list.txt
+grep ">" ${HAP2_CONTIG} | sed s/\>// > ${OUTPUT_DIR}/hap2_list.txt
+gzip -f ${OUTPUT_DIR}/hap2_list.txt
 
 # Step 4: Refine BAM file
 if [ $OPTION_SPLIT = "true" ]
@@ -94,8 +128,8 @@ then
     done
     wait
     
-    cat ${WORK_DIR}/split/${i}.bam_refiner.tsv > ${OUTPUT_DIR}/bam_refiner_result.tsv
-    cat ${WORK_DIR}/split/${i}.bam_refiner.log > ${OUTPUT_DIR}/bam_refiner.log
+    cat ${WORK_DIR}/split/*.bam_refiner.tsv > ${OUTPUT_DIR}/bam_refiner_result.tsv
+    cat ${WORK_DIR}/split/*.bam_refiner.log > ${OUTPUT_DIR}/bam_refiner.log
     samtools merge \
         -@ ${THREAD} \
         -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
@@ -119,7 +153,9 @@ samtools sort \
 samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
 rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 
-gzip ${OUTPUT_DIR}/bam_refiner_result.tsv
-gzip ${OUTPUT_DIR}/log/bam_refiner.log
+gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
+gzip -f ${OUTPUT_DIR}/log/bam_refiner.log
 
-rm -rf ${WORK_DIR}
+if [ ${DEBUG} = "false"]; then
+    rm -rf ${WORK_DIR}
+fi

@@ -3,31 +3,18 @@ use rust_htslib::bam::Read;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use bam_refiner::convert_u82String;
-use bam_refiner::get_cigartuples;
-use bam_refiner::get_read_position;
-use bam_refiner::reverse_complement;
+use bam_refiner::{
+    convert_u82String,
+    get_cigartuples,
+    get_read_position,
+    reverse_complement,
+    NewRecord,
+};
 
 pub fn process_write_bam(
     bamfile: &str,
     output_bam: &str,
-    filtered_alignments: &HashMap<
-        String,
-        Vec<(
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-            Vec<usize>,
-        )>,
-    >,
+    filtered_alignments: &HashMap<String, Vec<NewRecord>>,
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
 ) {
@@ -93,23 +80,7 @@ fn write_bam(
     out: &mut bam::Writer,
     read_alignments: &Vec<bam::record::Record>,
     headers: &HashMap<u32, String>,
-    filtered_alignments: &HashMap<
-        String,
-        Vec<(
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-            Vec<usize>,
-        )>,
-    >,
+    filtered_alignments: &HashMap<String, Vec<NewRecord>>,
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
 ) {
@@ -171,22 +142,22 @@ fn write_bam(
         };
 
         for i in info.iter() {
-            if *reference_name != i.0 {
+            if *reference_name != i.reference_name {
                 continue;
             }
-            if ref_start != i.1 {
+            if ref_start != i.ref_start {
                 continue;
             }
-            if ref_end != i.2 {
+            if ref_end != i.ref_end {
                 continue;
             }
-            if read_strand != i.5 {
+            if read_strand != i.read_strand {
                 continue;
             }
-            if read_start != i.3 {
+            if read_start != i.read_start {
                 continue;
             }
-            if read_end != i.4 {
+            if read_end != i.read_end {
                 continue;
             }
 
@@ -197,7 +168,7 @@ fn write_bam(
             record.set_pos(r.pos());
             // flag
             if r.is_reverse() {
-                if i.7 == 1 {
+                if i.is_supplementary == 1 {
                     let f: u16 = 2064;
                     record.set_flags(f);
                 } else {
@@ -205,7 +176,7 @@ fn write_bam(
                     record.set_flags(f);
                 }
             } else {
-                if i.7 == 1 {
+                if i.is_supplementary == 1 {
                     let f: u16 = 2048;
                     record.set_flags(f);
                 } else {
@@ -230,8 +201,8 @@ fn write_bam(
                 );
             }
             // mapping quality
-            if i.10 == 0 {
-                let mapq: u8 = 60 / i.11.len() as u8;
+            if i.flag == 0 {
+                let mapq: u8 = 60 / i.kmers_list.len() as u8;
                 record.set_mapq(mapq);
             } else {
                 let mapq: u8 = 60;
@@ -248,17 +219,15 @@ fn write_bam(
             }
 
             // New tag: HP
-            if i.10 == 0 {
+            if i.flag == 0 {
                 // let aux_hp_tag = bam::record::Aux::String("Amb");
                 let aux_hp_tag = bam::record::Aux::U8(0);
                 record.push_aux(b"HP", aux_hp_tag).unwrap();
             } else {
                 if hap1_set.contains(reference_name) {
-                    // let aux_hp_tag = bam::record::Aux::String("HP1");
                     let aux_hp_tag = bam::record::Aux::U8(1);
                     record.push_aux(b"HP", aux_hp_tag).unwrap();
                 } else if hap2_set.contains(reference_name) {
-                    // let aux_hp_tag = bam::record::Aux::String("HP2");
                     let aux_hp_tag = bam::record::Aux::U8(2);
                     record.push_aux(b"HP", aux_hp_tag).unwrap();
                 } else {
@@ -267,18 +236,18 @@ fn write_bam(
             }
 
             // New tag: PK and SK
-            if i.7 == 0 {
-                let prim_kmers: String = i.11.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+            if i.is_supplementary == 0 {
+                let prim_kmers: String = i.kmers_list.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
                 let prim_kmers_tag = bam::record::Aux::String(&prim_kmers);
                 record.push_aux(b"PK", prim_kmers_tag).unwrap();
             } else {
-                let supp_kmers: String = i.11.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
+                let supp_kmers: String = i.kmers_list.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(",");
                 let supp_kmers_tag = bam::record::Aux::String(&supp_kmers);
                 record.push_aux(b"SK", supp_kmers_tag).unwrap();
             }
 
             // New tag: reference kmer
-            let aux_rk_tag = bam::record::Aux::U32(i.9 as u32);
+            let aux_rk_tag = bam::record::Aux::U32(i.ref_kmer_cnt as u32);
             record.push_aux(b"RK", aux_rk_tag).unwrap();
             out.write(&record).unwrap();
             break;

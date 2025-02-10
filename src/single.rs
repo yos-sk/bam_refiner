@@ -15,57 +15,13 @@ use bam_refiner::{
     get_read_position,
     reverse_complement,
     NewRecord,
+    RefineInfo,
+    TempRecord,
     get_deletion_ref_pos,
 };
 
 #[path = "./single/write_bam.rs"]
 mod write_bam;
-
-#[derive(Clone)]
-struct RefineInfo {
-    reference_name: String,
-    ref_start: i64,
-    ref_end: i64,
-    read_start: u32,
-    read_end: u32,
-    read_strand: String,
-    is_secondary: usize,
-    is_supplementary: usize,
-    kmer_cnt: usize,
-    ref_kmer_cnt: usize,
-}
-
-#[derive(Clone)]
-struct TempRecord {
-    reference_name: String,
-    ref_start: i64,
-    ref_end: i64,
-    read_start: u32,
-    read_end: u32,
-    read_strand: String,
-    is_secondary: usize,
-    is_supplementary: usize,
-    kmer_cnt: usize,
-    ref_kmer_cnt: usize,
-    flag: usize,
-}
-impl TempRecord {
-    fn new() -> Self {
-        TempRecord {
-            reference_name: String::new(),
-            ref_start: 0,
-            ref_end: 0,
-            read_start: 0,
-            read_end: 0,
-            read_strand: String::new(),
-            is_secondary: 0,
-            is_supplementary: 0,
-            kmer_cnt: 0,
-            ref_kmer_cnt: 0,
-            flag: 0,
-        }
-    }
-}
 
 pub fn run(
     input_bam: &str,

@@ -6,6 +6,52 @@ use flate2::read::MultiGzDecoder;
 use std::fs::File;
 
 #[derive(Clone)]
+pub struct RefineInfo {
+    pub reference_name: String,
+    pub ref_start: i64,
+    pub ref_end: i64,
+    pub read_start: u32,
+    pub read_end: u32,
+    pub read_strand: String,
+    pub is_secondary: usize,
+    pub is_supplementary: usize,
+    pub kmer_cnt: usize,
+    pub ref_kmer_cnt: usize,
+}
+
+#[derive(Clone)]
+pub struct TempRecord {
+    pub reference_name: String,
+    pub ref_start: i64,
+    pub ref_end: i64,
+    pub read_start: u32,
+    pub read_end: u32,
+    pub read_strand: String,
+    pub is_secondary: usize,
+    pub is_supplementary: usize,
+    pub kmer_cnt: usize,
+    pub ref_kmer_cnt: usize,
+    pub flag: usize,
+}
+impl TempRecord {
+    pub fn new() -> Self {
+        TempRecord {
+            reference_name: String::new(),
+            ref_start: 0,
+            ref_end: 0,
+            read_start: 0,
+            read_end: 0,
+            read_strand: String::new(),
+            is_secondary: 0,
+            is_supplementary: 0,
+            kmer_cnt: 0,
+            ref_kmer_cnt: 0,
+            flag: 0,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct NewRecord {
     pub reference_name: String,
     pub ref_start: i64,

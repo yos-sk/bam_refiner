@@ -1,20 +1,27 @@
-use rust_htslib::bam;
-use rust_htslib::bam::Read;
-use rust_htslib::tbx;
-use rust_htslib::tbx::Read as tbx_read;
-use rust_htslib::tpool::Error;
+use rust_htslib::{
+    bam,
+    bam::Read,
+    tbx,
+    tbx::Read as tbx_read,
+    tpool::Error,
+};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as stdError;
 use std::io::BufRead;
 
-use bam_refiner::convert_u82String;
-use bam_refiner::get_cigartuples;
-use bam_refiner::get_current_ref_pos;
-use bam_refiner::get_read_position;
-use bam_refiner::reverse_complement;
-use bam_refiner::open_file;
-use bam_refiner::get_deletion_ref_pos;
+use bam_refiner::{
+    convert_u82String,
+    get_cigartuples,
+    get_current_ref_pos,
+    get_read_position,
+    reverse_complement,
+    open_file,
+    get_deletion_ref_pos,
+    NewRecord,
+    RefineInfo,
+    TempRecord,
+};
 
 #[path = "./refine/write_bam.rs"]
 mod write_bam;
@@ -53,7 +60,7 @@ fn cal_count_marker(
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
     kmer_size: u32,
-) -> HashMap<String, Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>> {
+) -> HashMap<String, Vec<RefineInfo>> {
     let mut hap1_tbx_reader =
         tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
 
@@ -71,10 +78,7 @@ fn cal_count_marker(
         headers.insert(r_tid, r_string);
     }
 
-    let mut alignments: HashMap<
-        String,
-        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>,
-    > = HashMap::new();
+    let mut alignments: HashMap<String, Vec<RefineInfo>,> = HashMap::new();
 
     let mut read_alignments: Vec<bam::record::Record> = Vec::new();
     let mut prev_read_id = String::new();
@@ -126,22 +130,22 @@ fn cal_count_marker(
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by(|t1, t2| {
-            let key_a = (t1.3 as isize, -(t1.4 as isize));
-            let key_b = (t2.3 as isize, -(t2.4 as isize));
+            let key_a = (t1.read_start as isize, -(t1.read_end as isize));
+            let key_b = (t2.read_start as isize, -(t2.read_end as isize));
             key_a.cmp(&key_b)
         });
 
         eprint!("{}\t", key);
-        for (i, tuple) in value.iter().enumerate() {
+        for (i, info) in value.iter().enumerate() {
             if i != value.len() - 1 {
                 eprint!(
                     "{},{},{},{},{},{},{},{},{},{}\t",
-                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9
+                    info.reference_name, info.ref_start, info.ref_end, info.read_start, info.read_end, info.read_strand, info.is_secondary, info.is_supplementary, info.kmer_cnt, info.ref_kmer_cnt,
                 );
             } else {
                 eprintln!(
                     "{},{},{},{},{},{},{},{},{},{}",
-                    tuple.0, tuple.1, tuple.2, tuple.3, tuple.4, tuple.5, tuple.6, tuple.7, tuple.8, tuple.9
+                    info.reference_name, info.ref_start, info.ref_end, info.read_start, info.read_end, info.read_strand, info.is_secondary, info.is_supplementary, info.kmer_cnt, info.ref_kmer_cnt,
                 );
             }
         }
@@ -158,12 +162,11 @@ fn process_read_alignments(
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
     kmer_size: u32,
-) -> Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)> {
+) -> Vec<RefineInfo> {
     let mut records = read_alignments.clone();
     records.sort_by_key(|t| t.flags());
 
-    let mut counted_alignments: Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)> =
-        Vec::new();
+    let mut counted_alignments: Vec<RefineInfo> = Vec::new();
     let mut sequence = String::new();
     for (i, record) in records.iter().enumerate() {
         if i == 0 {
@@ -231,18 +234,18 @@ fn process_read_alignments(
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                        0,
-                    );
+                    let info = RefineInfo {
+                        reference_name: reference_name.to_string(),
+                        ref_start: ref_start,
+                        ref_end: ref_end,
+                        read_start: r_read_start,
+                        read_end: r_read_end,
+                        read_strand: read_strand.to_string(),
+                        is_secondary: is_sec,
+                        is_supplementary: is_supp,
+                        kmer_cnt: 0,
+                        ref_kmer_cnt: 0,
+                    };
                     counted_alignments.push(info);
                     continue;
                 }
@@ -254,18 +257,18 @@ fn process_read_alignments(
                     ();
                 }
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                        0,
-                    );
+                    let info = RefineInfo {
+                        reference_name: reference_name.to_string(),
+                        ref_start: ref_start,
+                        ref_end: ref_end,
+                        read_start: r_read_start,
+                        read_end: r_read_end,
+                        read_strand: read_strand.to_string(),
+                        is_secondary: is_sec,
+                        is_supplementary: is_supp,
+                        kmer_cnt: 0,
+                        ref_kmer_cnt: 0,
+                    };
                     counted_alignments.push(info);
                     continue;
                 }
@@ -275,18 +278,18 @@ fn process_read_alignments(
             let tid = match tbx_reader.tid(reference_name) {
                 Ok(tid) => tid,
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                        0,
-                    );
+                    let info = RefineInfo {
+                        reference_name: reference_name.to_string(),
+                        ref_start: ref_start,
+                        ref_end: ref_end,
+                        read_start: r_read_start,
+                        read_end: r_read_end,
+                        read_strand: read_strand.to_string(),
+                        is_secondary: is_sec,
+                        is_supplementary: is_supp,
+                        kmer_cnt: 0,
+                        ref_kmer_cnt: 0,
+                    };
                     counted_alignments.push(info);
                     continue;
                 }
@@ -298,19 +301,18 @@ fn process_read_alignments(
                     ();
                 }
                 Err(_) => {
-                    let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
-                        reference_name.to_string(),
-                        ref_start,
-                        ref_end,
-                        r_read_start,
-                        r_read_end,
-                        read_strand.to_string(),
-                        is_sec,
-                        is_supp,
-                        kmer_cnt,
-                        0,
-                    );
-                    // println!("{} {}", read_id, kmer_cnt);
+                    let info = RefineInfo {
+                        reference_name: reference_name.to_string(),
+                        ref_start: ref_start,
+                        ref_end: ref_end,
+                        read_start: r_read_start,
+                        read_end: r_read_end,
+                        read_strand: read_strand.to_string(),
+                        is_secondary: is_sec,
+                        is_supplementary: is_supp,
+                        kmer_cnt: 0,
+                        ref_kmer_cnt: 0,
+                    };
                     counted_alignments.push(info);
                     continue;
                 }
@@ -345,11 +347,6 @@ fn process_read_alignments(
                     if del.1 >= tmp_start && del.0 < tmp_end {
                         cnt_flag = false;
                     }
-                    /*
-                    if read_id == "m64288_220429_181717/1419/ccs" {
-                        eprintln!("Deletion test: {}\t{}\t{}\t{}\t{}\t{:?}", ref_start, del.0, del.1, tmp_start, tmp_end, cnt_flag);
-                    }
-                    */
                 }
                 if cnt_flag {
                     ref_kmer_cnt += 1;
@@ -384,474 +381,248 @@ fn process_read_alignments(
             }
         }
 
-        let info: (String, i64, i64, u32, u32, String, usize, usize, usize, usize) = (
-            reference_name.to_string(),
-            ref_start,
-            ref_end,
-            r_read_start,
-            r_read_end,
-            read_strand.to_string(),
-            is_sec,
-            is_supp,
-            kmer_cnt,
-            ref_kmer_cnt,
-        );
+         let info = RefineInfo {
+            reference_name: reference_name.to_string(),
+            ref_start: ref_start,
+            ref_end: ref_end,
+            read_start: r_read_start,
+            read_end: r_read_end,
+            read_strand: read_strand.to_string(),
+            is_secondary: is_sec,
+            is_supplementary: is_supp,
+            kmer_cnt: kmer_cnt,
+            ref_kmer_cnt: ref_kmer_cnt,
+        };
         counted_alignments.push(info);
     }
     counted_alignments
 }
 
-fn filter(
-    alignments: &mut HashMap<
-        String,
-        Vec<(String, i64, i64, u32, u32, String, usize, usize, usize, usize)>,
-    >,
-) -> HashMap<
-    String,
-    Vec<(
-        String,
-        i64,
-        i64,
-        u32,
-        u32,
-        String,
-        usize,
-        usize,
-        usize,
-        usize,
-        usize,
-        Vec<usize>,
-    )>,
-> {
-    let mut new_results: HashMap<
-        String,
-        Vec<(
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-            Vec<usize>,
-        )>,
-    > = HashMap::new();
+fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>) -> HashMap<String, Vec<NewRecord>> {
+    let mut new_results: HashMap<String, Vec<NewRecord>> = HashMap::new();
 
     for (key, value) in alignments.iter_mut() {
-        value.sort_by_key(|tuple| tuple.6);
-        let mut prim_info: (
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-        ) = (
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
-        let mut supp_info: Vec<(
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-        )> = vec![];
+        value.sort_by_key(|info| info.is_secondary);
+        let mut prim_info = TempRecord::new();
+        let mut supp_info: Vec<TempRecord> = Vec::new();
         let mut prim_kmer_cnts: Vec<usize> = Vec::new();
         let mut supp_kmer_cnts: Vec<Vec<usize>> = Vec::new();
-        for tuple in value {
+        for info in value {
             // Secondary alignments
-            if tuple.6 == 1 {
+            if info.is_secondary == 1 {
                 let mut supp_id: isize = -1;
                 let mut supp_dist: isize = -1;
                 let mut supp_cnt: isize = -1;
                 let mut prim_dist: isize = -1;
                 let mut prim_cnt: isize = -1;
-                if prim_info.0 != String::default() {
-                    let diff_start = prim_info.3 as isize - tuple.3 as isize;
-                    let diff_end = prim_info.4 as isize - tuple.4 as isize;
+                if !prim_info.reference_name.is_empty() {
+                    let diff_start = prim_info.read_start as isize - info.read_start as isize;
+                    let diff_end = prim_info.read_end as isize - info.read_end as isize;
                     prim_dist = diff_start.abs() + diff_end.abs();
-                    prim_cnt = prim_info.8 as isize;
+                    prim_cnt = prim_info.kmer_cnt as isize;
                 }
                 if !supp_info.is_empty() {
                     for (i, t_supp_info) in supp_info.iter().enumerate() {
-                        let s_diff_start = t_supp_info.3 as isize - tuple.3 as isize;
-                        let s_diff_end = t_supp_info.4 as isize - tuple.4 as isize;
+                        let s_diff_start = t_supp_info.read_start as isize - info.read_start as isize;
+                        let s_diff_end = t_supp_info.read_end as isize - info.read_end as isize;
                         let t_supp_dist = s_diff_start.abs() + s_diff_end.abs();
                         if supp_dist == -1 {
                             supp_dist = t_supp_dist;
                             supp_id = i as isize;
-                            supp_cnt = t_supp_info.8 as isize;
+                            supp_cnt = t_supp_info.kmer_cnt as isize;
                         } else if supp_dist > t_supp_dist {
                             supp_dist = t_supp_dist;
                             supp_id = i as isize;
-                            supp_cnt = t_supp_info.8 as isize;
+                            supp_cnt = t_supp_info.kmer_cnt as isize;
                         }
                     }
                     if prim_dist <= supp_dist {
-                        if prim_cnt < tuple.8.try_into().unwrap() {
-                            let info: (
-                                String,
-                                i64,
-                                i64,
-                                u32,
-                                u32,
-                                String,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                            ) = (
-                                tuple.0.clone(),
-                                tuple.1,
-                                tuple.2,
-                                tuple.3,
-                                tuple.4,
-                                tuple.5.clone(),
-                                0,
-                                tuple.7,
-                                tuple.8,
-                                tuple.9,
-                                1,
-                            );
-                            prim_info = info;
-                        } else if prim_cnt == tuple.8.try_into().unwrap() {
-                            let info: (
-                                String,
-                                i64,
-                                i64,
-                                u32,
-                                u32,
-                                String,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                            ) = (
-                                prim_info.0.clone(),
-                                prim_info.1,
-                                prim_info.2,
-                                prim_info.3,
-                                prim_info.4,
-                                prim_info.5.clone(),
-                                0,
-                                prim_info.7,
-                                prim_info.8,
-                                prim_info.9,
-                                0,
-                            );
-                            prim_info = info;
+                        if prim_cnt < info.kmer_cnt.try_into().unwrap() {
+                            prim_info =  TempRecord {
+                                reference_name: info.reference_name.clone(),
+                                ref_start: info.ref_start,
+                                ref_end: info.ref_end,
+                                read_start: info.read_start,
+                                read_end: info.read_end,
+                                read_strand: info.read_strand.clone(),
+                                is_secondary: 0,
+                                is_supplementary: 0,
+                                kmer_cnt: info.kmer_cnt,
+                                ref_kmer_cnt: info.ref_kmer_cnt,
+                                flag: 1,
+                            };
+                        } else if prim_cnt == info.kmer_cnt.try_into().unwrap() {
+                            prim_info = TempRecord {
+                                reference_name: prim_info.reference_name.clone(),
+                                ref_start: prim_info.ref_start,
+                                ref_end: prim_info.ref_end,
+                                read_start: prim_info.read_start,
+                                read_end: prim_info.read_end,
+                                read_strand: prim_info.read_strand.clone(),
+                                is_secondary: 0,
+                                is_supplementary: 0,
+                                kmer_cnt: prim_info.kmer_cnt,
+                                ref_kmer_cnt: prim_info.ref_kmer_cnt,
+                                flag: 0,
+                            };
                         }
-                        prim_kmer_cnts.push(tuple.8);
+                        prim_kmer_cnts.push(info.kmer_cnt);
                     } else {
-                        if supp_cnt < tuple.8.try_into().unwrap() {
-                            let info: (
-                                String,
-                                i64,
-                                i64,
-                                u32,
-                                u32,
-                                String,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                            ) = (
-                                tuple.0.clone(),
-                                tuple.1,
-                                tuple.2,
-                                tuple.3,
-                                tuple.4,
-                                tuple.5.clone(),
-                                0,
-                                1,
-                                tuple.8,
-                                tuple.9,
-                                1,
-                            );
+                        if supp_cnt < info.kmer_cnt.try_into().unwrap() {
                             let id = supp_id as usize;
-                            supp_info[id] = info;
-                        } else if supp_cnt == tuple.8.try_into().unwrap() {
+                            supp_info[id] = TempRecord {
+                                reference_name: info.reference_name.clone(),
+                                ref_start: info.ref_start,
+                                ref_end: info.ref_end,
+                                read_start: info.read_start,
+                                read_end: info.read_end,
+                                read_strand: info.read_strand.clone(),
+                                is_secondary: 0,
+                                is_supplementary: 0,
+                                kmer_cnt: info.kmer_cnt,
+                                ref_kmer_cnt: info.ref_kmer_cnt,
+                                flag: 1,
+                            };
+                        } else if supp_cnt == info.kmer_cnt.try_into().unwrap() {
                             let id = supp_id as usize;
-                            let info: (
-                                String,
-                                i64,
-                                i64,
-                                u32,
-                                u32,
-                                String,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                                usize,
-                            ) = (
-                                supp_info[id].0.clone(),
-                                supp_info[id].1,
-                                supp_info[id].2,
-                                supp_info[id].3,
-                                supp_info[id].4,
-                                supp_info[id].5.clone(),
-                                0,
-                                1,
-                                supp_info[id].8,
-                                supp_info[id].9,
-                                0,
-                            );
-                            supp_info[id] = info;
+                            supp_info[id] = TempRecord {
+                                reference_name: supp_info[id].reference_name.clone(),
+                                ref_start: supp_info[id].ref_start,
+                                ref_end: supp_info[id].ref_end,
+                                read_start: supp_info[id].read_start,
+                                read_end: supp_info[id].read_end,
+                                read_strand: supp_info[id].read_strand.clone(),
+                                is_secondary: 0,
+                                is_supplementary: 1,
+                                kmer_cnt: supp_info[id].kmer_cnt,
+                                ref_kmer_cnt: supp_info[id].ref_kmer_cnt,
+                                flag: 0,
+                            };
                         }
                         let id = supp_id as usize;
-                        supp_kmer_cnts[id].push(tuple.8)
+                        supp_kmer_cnts[id].push(info.kmer_cnt)
                     }
                 } else {
-                    if prim_cnt < tuple.8.try_into().unwrap() {
-                        let info: (
-                            String,
-                            i64,
-                            i64,
-                            u32,
-                            u32,
-                            String,
-                            usize,
-                            usize,
-                            usize,
-                            usize,
-                            usize,
-                        ) = (
-                            tuple.0.clone(),
-                            tuple.1,
-                            tuple.2,
-                            tuple.3,
-                            tuple.4,
-                            tuple.5.clone(),
-                            0,
-                            tuple.7,
-                            tuple.8,
-                            tuple.9,
-                            1,
-                        );
-                        prim_info = info;
+                    if prim_cnt < info.kmer_cnt.try_into().unwrap() {
+                        prim_info = TempRecord {
+                            reference_name: info.reference_name.clone(),
+                            ref_start: info.ref_start,
+                            ref_end: info.ref_end,
+                            read_start: info.read_start,
+                            read_end: info.read_end,
+                            read_strand: info.read_strand.clone(),
+                            is_secondary: 0,
+                            is_supplementary: 0,
+                            kmer_cnt: info.kmer_cnt,
+                            ref_kmer_cnt: info.ref_kmer_cnt,
+                            flag: 1,
+                        };
                     }
-                    prim_kmer_cnts.push(tuple.8);
+                    prim_kmer_cnts.push(info.kmer_cnt);
                 }
             // supplementary alignments
-            } else if tuple.7 == 1 {
-                if tuple.8 == 0 {
-                    let info: (
-                        String,
-                        i64,
-                        i64,
-                        u32,
-                        u32,
-                        String,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                    ) = (
-                        tuple.0.clone(),
-                        tuple.1,
-                        tuple.2,
-                        tuple.3,
-                        tuple.4,
-                        tuple.5.clone(),
-                        0,
-                        1,
-                        tuple.8,
-                        tuple.9,
-                        0,
-                    );
-                    supp_info.push(info);
+            } else if info.is_supplementary == 1 {
+                if info.kmer_cnt == 0 {
+                    let t_info = TempRecord {
+                        reference_name: info.reference_name.clone(),
+                        ref_start: info.ref_start,
+                        ref_end: info.ref_end,
+                        read_start: info.read_start,
+                        read_end: info.read_end,
+                        read_strand: info.read_strand.clone(),
+                        is_secondary: 0,
+                        is_supplementary: 1,
+                        kmer_cnt: info.kmer_cnt,
+                        ref_kmer_cnt: info.ref_kmer_cnt,
+                        flag: 0,
+                    };
+                    supp_info.push(t_info);
                 } else {
-                    let info: (
-                        String,
-                        i64,
-                        i64,
-                        u32,
-                        u32,
-                        String,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                    ) = (
-                        tuple.0.clone(),
-                        tuple.1,
-                        tuple.2,
-                        tuple.3,
-                        tuple.4,
-                        tuple.5.clone(),
-                        0,
-                        1,
-                        tuple.8,
-                        tuple.9,
-                        1,
-                    );
-                    supp_info.push(info);
+                    let t_info =  TempRecord {
+                        reference_name: info.reference_name.clone(),
+                        ref_start: info.ref_start,
+                        ref_end: info.ref_end,
+                        read_start: info.read_start,
+                        read_end: info.read_end,
+                        read_strand: info.read_strand.clone(),
+                        is_secondary: 0,
+                        is_supplementary: 1,
+                        kmer_cnt: info.kmer_cnt,
+                        ref_kmer_cnt: info.ref_kmer_cnt,
+                        flag: 1,
+                    };
+                    supp_info.push(t_info);
                 }
-                supp_kmer_cnts.push(vec![tuple.8]);
+                supp_kmer_cnts.push(vec![info.kmer_cnt]);
             // primary alignment
             } else {
-                if tuple.8 == 0 {
-                    let info: (
-                        String,
-                        i64,
-                        i64,
-                        u32,
-                        u32,
-                        String,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                    ) = (
-                        tuple.0.clone(),
-                        tuple.1,
-                        tuple.2,
-                        tuple.3,
-                        tuple.4,
-                        tuple.5.clone(),
-                        0,
-                        tuple.7,
-                        tuple.8,
-                        tuple.9,
-                        0,
-                    );
-                    prim_info = info;
+                if info.kmer_cnt == 0 {
+                    prim_info = TempRecord {
+                        reference_name: info.reference_name.clone(),
+                        ref_start: info.ref_start,
+                        ref_end: info.ref_end,
+                        read_start: info.read_start,
+                        read_end: info.read_end,
+                        read_strand: info.read_strand.clone(),
+                        is_secondary: 0,
+                        is_supplementary: 0,
+                        kmer_cnt: info.kmer_cnt,
+                        ref_kmer_cnt: info.ref_kmer_cnt,
+                        flag: 0,
+                    };
                 } else {
-                    let info: (
-                        String,
-                        i64,
-                        i64,
-                        u32,
-                        u32,
-                        String,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                        usize,
-                    ) = (
-                        tuple.0.clone(),
-                        tuple.1,
-                        tuple.2,
-                        tuple.3,
-                        tuple.4,
-                        tuple.5.clone(),
-                        0,
-                        tuple.7,
-                        tuple.8,
-                        tuple.9,
-                        1,
-                    );
-                    prim_info = info;
+                    prim_info = TempRecord {
+                        reference_name: info.reference_name.clone(),
+                        ref_start: info.ref_start,
+                        ref_end: info.ref_end,
+                        read_start: info.read_start,
+                        read_end: info.read_end,
+                        read_strand: info.read_strand.clone(),
+                        is_secondary: 0,
+                        is_supplementary: 0,
+                        kmer_cnt: info.kmer_cnt,
+                        ref_kmer_cnt: info.ref_kmer_cnt,
+                        flag: 1,
+                    };
                 }
-                prim_kmer_cnts.push(tuple.8);
+                prim_kmer_cnts.push(info.kmer_cnt);
             }
         }
         eprintln!("{}: {:?}", key, prim_kmer_cnts);
         eprintln!("{}: {:?}", key, supp_kmer_cnts);
-        let f_prim_info: (
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-            Vec<usize>,
-        ) = (
-            prim_info.0.clone(),
-            prim_info.1,
-            prim_info.2,
-            prim_info.3,
-            prim_info.4,
-            prim_info.5.clone(),
-            prim_info.6,
-            prim_info.7,
-            prim_info.8,
-            prim_info.9,
-            prim_info.10,
-            prim_kmer_cnts,
-        );
-        
-        let mut new_result: Vec<(
-            String,
-            i64,
-            i64,
-            u32,
-            u32,
-            String,
-            usize,
-            usize,
-            usize,
-            usize,
-            usize,
-            Vec<usize>,    
-        )> = vec![f_prim_info];
+
+        let f_prim_info = NewRecord {
+            reference_name: prim_info.reference_name.clone(),
+            ref_start: prim_info.ref_start,
+            ref_end: prim_info.ref_end,
+            read_start: prim_info.read_start,
+            read_end: prim_info.read_end,
+            read_strand: prim_info.read_strand.clone(),
+            is_secondary: prim_info.is_secondary,
+            is_supplementary: prim_info.is_supplementary,
+            kmer_cnt: prim_info.kmer_cnt,
+            ref_kmer_cnt: prim_info.ref_kmer_cnt,
+            flag: prim_info.flag,
+            kmers_list: prim_kmer_cnts,
+        };
+
+        let mut new_result: Vec<NewRecord> = vec![f_prim_info];
 
         for (i, t_supp_info) in supp_info.iter().enumerate() {
-            let f_supp_info: (
-                String,
-                i64,
-                i64,
-                u32,
-                u32,
-                String,
-                usize,
-                usize,
-                usize,
-                usize,
-                usize,
-                Vec<usize>,
-            ) = (
-                t_supp_info.0.clone(),
-                t_supp_info.1,
-                t_supp_info.2,
-                t_supp_info.3,
-                t_supp_info.4,
-                t_supp_info.5.clone(),
-                t_supp_info.6,
-                t_supp_info.7,
-                t_supp_info.8,
-                t_supp_info.9,
-                t_supp_info.10,
-                supp_kmer_cnts[i].clone(),
-            );
+            let f_supp_info = NewRecord {
+                reference_name: t_supp_info.reference_name.clone(),
+                ref_start: t_supp_info.ref_start,
+                ref_end: t_supp_info.ref_end,
+                read_start: t_supp_info.read_start,
+                read_end: t_supp_info.read_end,
+                read_strand: t_supp_info.read_strand.clone(),
+                is_secondary: t_supp_info.is_secondary,
+                is_supplementary: t_supp_info.is_supplementary,
+                kmer_cnt: t_supp_info.kmer_cnt,
+                ref_kmer_cnt: t_supp_info.ref_kmer_cnt,
+                flag: t_supp_info.flag,
+                kmers_list: supp_kmer_cnts[i].clone(),
+            };
             new_result.push(f_supp_info);
         }
         new_results.insert(key.to_string(), new_result);
@@ -859,42 +630,42 @@ fn filter(
 
     for (key, value) in new_results.iter_mut() {
         value.sort_by(|t1, t2| {
-            let key_a = (t1.3 as isize, -(t1.4 as isize));
-            let key_b = (t2.3 as isize, -(t2.4 as isize));
+            let key_a = (t1.read_start as isize, -(t1.read_end as isize));
+            let key_b = (t2.read_start as isize, -(t2.read_end as isize));
             key_a.cmp(&key_b)
         });
 
         print!("{}\t", key);
-        for (i, tuple) in value.iter().enumerate() {
+        for (i, info) in value.iter().enumerate() {
             if i != value.len() - 1 {
-                print!(
+                 print!(
                     "{},{},{},{},{},{},{},{},{},{},{}\t",
-                    tuple.0,
-                    tuple.1,
-                    tuple.2,
-                    tuple.3,
-                    tuple.4,
-                    tuple.5,
-                    tuple.6,
-                    tuple.7,
-                    tuple.8,
-                    tuple.9,
-                    tuple.10,
+                    &info.reference_name,
+                    info.ref_start,
+                    info.ref_end,
+                    info.read_start,
+                    info.read_end,
+                    &info.read_strand,
+                    info.is_secondary,
+                    info.is_supplementary,
+                    info.kmer_cnt,
+                    info.ref_kmer_cnt,
+                    info.flag,
                 );
             } else {
                 println!(
                     "{},{},{},{},{},{},{},{},{},{},{}",
-                    tuple.0,
-                    tuple.1,
-                    tuple.2,
-                    tuple.3,
-                    tuple.4,
-                    tuple.5,
-                    tuple.6,
-                    tuple.7,
-                    tuple.8,
-                    tuple.9,
-                    tuple.10,
+                    &info.reference_name,
+                    info.ref_start,
+                    info.ref_end,
+                    info.read_start,
+                    info.read_end,
+                    &info.read_strand,
+                    info.is_secondary,
+                    info.is_supplementary,
+                    info.kmer_cnt,
+                    info.ref_kmer_cnt,
+                    info.flag,
                 );
             }
         }
