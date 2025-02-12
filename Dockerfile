@@ -30,16 +30,12 @@ RUN git clone https://github.com/yos-sk/bam_refiner.git && \
     cd  bam_refiner && \
     ~/.cargo/bin/cargo build --release
 
-RUN git clone https://github.com/yos-sk/kmer_locate.git && \
-    cd kmer_locate && \
-    ~/.cargo/bin/cargo build --release
-
 RUN git clone https://github.com/yos-sk/split_bam.git && \
     cd split_bam && \
     ~/.cargo/bin/cargo build --release
 
-RUN git clone https://github.com/lh3/minimap2 && \
-    cd minimap2 && make
+RUN wget https://github.com/lh3/minimap2/releases/download/v2.28/minimap2-2.28_x64-linux.tar.bz2 && \
+    tar jxvf minimap2-2.28_x64-linux.tar.bz2 
 
 RUN wget https://github.com/samtools/samtools/releases/download/1.17/samtools-1.17.tar.bz2 && \
     tar jxvf samtools-1.17.tar.bz2 && \
@@ -52,8 +48,7 @@ RUN wget https://github.com/marbl/meryl/releases/download/v1.4.1/meryl-1.4.1.Lin
 ENV PATH $PATH:/tools/meryl-1.4.1/bin
 
 ENV PATH $PATH:/tools/bam_refiner/target/release
-ENV PATH $PATH:/tools/kmer_locate/target/release
 ENV PATH $PATH:/tools/split_bam/target/release
-ENV PATH $PATH:/tools/minimap2
+ENV PATH $PATH:/tools/minimap2-2.28_x64-linux
 
 CMD ["/bin/bash"]
