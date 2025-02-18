@@ -5,7 +5,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "b:df:o:pr:s:t:u:" opt; do
+while getopts "b:df:h:i:o:ps:t:u:" opt; do
   case $opt in
     b) BAM=$OPTARG ;;
     d) DEBUG="true" ;;
@@ -16,7 +16,7 @@ while getopts "b:df:o:pr:s:t:u:" opt; do
     p) OPTION_SPLIT="true" ;;
     s) SAMPLE=$OPTARG ;;
     t) THREAD=$OPTARG ;;
-    u) DATA=$OPRARG ;;
+    u) DATA=$OPTARG ;;
     *) echo "Invalid option"; exit 1 ;;
   esac
 done
@@ -37,10 +37,6 @@ fi
 if [ -z "${OPTION_SPLIT:-}" ]; then
     echo "Split option is not given. Bam_refiner will be performed without splitting a BAM file"
     OPTION_SPLIT="false"
-fi
-
-if [ -z "${REFERENCE:-}" ]; then
-    echo "Reference genome is not given. Please set -r {REFERENCE}"; exit 1
 fi
 
 if [ -z "${SAMPLE:-}" ]; then
