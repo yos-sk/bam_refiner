@@ -25,7 +25,7 @@ You should make singularity image of bam_refiner.
 ```
 singularity exec bam_refiner_${VERSION}.sif \
     /bin/bash run_refine.sh \
-        -d \ # For debug mode to reamin intermedeiate files
+        -d \ # For debug mode to keep intermedeiate files
         -f ${FASTQ} \
         -h ${HAP1_ASSEMBLY} \ # fasta file of haplotype1 contigs
         -i ${HAP2_ASSEMBLY} \ # fasta file of haplotype2 contigs
