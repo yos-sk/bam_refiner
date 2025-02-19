@@ -23,16 +23,17 @@ You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](http
 You should make singularity image of bam_refiner.
 
 ```
-singularity exec bam_refiner_latest.sif \
-    /bin/bash run.sh \
-        SAMPLE_NAME \ # sample name
-        hap1_contig \ # fasta file of haplotype1 contigs
-        hap2_contig \ # fasta file of haplotype2 contigs
-        FASTQ \ # Sequencing data
-        SPLIT_OPTION \ # true or false
-        WORK_DIR \ # PATH to working directory
-        OUTPUT_DIR \ # PATH to output directory
-        THREAD # Number of threads
+singularity exec bam_refiner_${VERSION}.sif \
+    /bin/bash run_refine.sh \
+        -d \ # For debug mode to reamin intermedeiate files
+        -f ${FASTQ} \
+        -h ${HAP1_ASSEMBLY} \ # fasta file of haplotype1 contigs
+        -i ${HAP2_ASSEMBLY} \ # fasta file of haplotype2 contigs
+        -o ${OUTPUT_DIR} \
+        -p # For parallel processing of bam_refiner
+        -s ${SAMPLE_NAME} \ # Sample name
+        -t ${THREADS} # Number of threads
+        -u ${DATA_TYPE} # hifi or ont
 ```
 
 ### 2. Step by step
