@@ -5,9 +5,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "b:df:h:i:o:ps:t:u:" opt; do
+while getopts "df:h:i:o:ps:t:u:" opt; do
   case $opt in
-    b) BAM=$OPTARG ;;
     d) DEBUG="true" ;;
     f) FASTQ=$OPTARG ;;
     h) HAP1_CONTIG=$OPTARG ;;
@@ -21,8 +20,8 @@ while getopts "b:df:h:i:o:ps:t:u:" opt; do
   esac
 done
 
-if [ -z "${FASTQ:-}" ] && [ -z "${BAM:-}" ]; then
-    echo "FASTQ/BAM file is not given. Please set -f {FASTQ_FILE} with mapping or -b {BAM_FILE} without mapping"; exit 1
+if [ -z "${FASTQ:-}" ]; then
+    echo "FASTQ file is not given. Please set -f {FASTQ_FILE}"; exit 1
 fi
 
 if [ -z "${DEBUG:-}" ]; then
