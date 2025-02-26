@@ -7,9 +7,9 @@ set -o pipefail
 
 while getopts "b:df:l:m:o:pr:s:t:" opt; do
   case $opt in
-    b) BAM=$OPTARG ;;
+    b) INPUT_BAM=$OPTARG ;;
     d) DEBUG="true" ;;
-    f) FASTQ=$OPTARG ;;
+    f) INPUT_FASTQ=$OPTARG ;;
     l) REGIONS=$OPTARG ;;
     m) MINIMAP_OPTION=$OPTARG ;;
     o) OUTPUT_DIR=$OPTARG ;;
@@ -21,7 +21,7 @@ while getopts "b:df:l:m:o:pr:s:t:" opt; do
   esac
 done
 
-if [ -z "${FASTQ:-}" ] && [ -z "${BAM:-}" ]; then
+if [ -z "${INPUT_FASTQ:-}" ] && [ -z "${INPUT_BAM:-}" ]; then
     echo "FASTQ/BAM file is not given. Please set -f {FASTQ_FILE} with mapping or -b {BAM_FILE} without mapping"; exit 1
 fi
 
@@ -34,7 +34,7 @@ if [ -z "${REGIONS:-}" ]; then
     echo "Target region list is not given. Pleaset -l {REGION_LIST}"; exit 1
 fi
 
-if [ -z "${MINIMAP2_OPTION:-}" ] && [ -z "${BAM:-}" ]; then
+if [ -z "${MINIMAP2_OPTION:-}" ] && [ -z "${INPUT_BAM:-}" ]; then
     echo "Minimap2 option is not given. Please set -m {MINIMAP2_OPTION}"; exit 1
 fi
 
@@ -64,12 +64,15 @@ WORK_DIR=${OUTPUT_DIR}/workspace
 mkdir -p ${WORK_DIR} 
 
 # Step1: Mapping
-if [ -z ${BAM:-} ] && [ ! -z ${FASTQ:-} ]; then
-    OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
-    minimap2 -t ${THREAD} ${MINIMAP2_OPTION} ${REFERENCE} ${FASTQ} | samtools view -@ ${THREAD}-Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
+if [ -z ${INPUT_BAM:-} ] && [ ! -z ${INPUT_FASTQ:-} ]; then
+    minimap2 -t ${THREAD} ${MINIMAP2_OPTION} ${REFERENCE} ${INPUT_FASTQ} | samtools view -@ ${THREAD}-Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
     samtools sort -@ ${THREAD} -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
     rm ${OUTPUT_BAM_PREFIX}.unsorted
     BAM=${OUTPUT_BAM_PREFIX}.bam
+elif [ ! -z ${INPUT_BAM:-} ]; then
+    samtools sort -@ ${THREAD} -m 2G -n ${INPUT_BAM} -o ${OUTPUT_BAM_PREFIX}.bam
+    BAM=${OUTPUT_BAM_PREFIX}.bam 
 fi
 
 # Step2: Extract reference sequences of target regions
@@ -142,6 +145,6 @@ rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
 gzip -f ${OUTPUT_DIR}/bam_refiner.log
 
-if [ ${DEBUG} = "false"]; then
+if [ ${DEBUG} = "false" ]; then
     rm -rf ${WORK_DIR}
 fi
