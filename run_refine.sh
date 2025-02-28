@@ -138,18 +138,18 @@ else
         --hap1-list ${OUTPUT_DIR}/hap1_list.txt.gz \
         --hap2-list ${OUTPUT_DIR}/hap2_list.txt.gz \
         --kmer-size 21 \
-        1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/log/bam_refiner.log
+        1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
 fi
 
 samtools sort \
     -@ ${THREAD} \
     -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
     ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
-samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
+samtools index -@ ${THREAD} ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
 rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 
 gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
-gzip -f ${OUTPUT_DIR}/log/bam_refiner.log
+gzip -f ${OUTPUT_DIR}/bam_refiner.log
 
 if [ ${DEBUG} = "false"]; then
     rm -rf ${WORK_DIR}

@@ -139,7 +139,7 @@ samtools sort \
     -@ ${THREAD} \
     -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
     ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam 
-samtools index ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
+samtools index -@ ${THREAD} ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam 
 rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 
 gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
