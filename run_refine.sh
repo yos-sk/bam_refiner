@@ -151,6 +151,11 @@ rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
 gzip -f ${OUTPUT_DIR}/bam_refiner.log
 
+bam_refiner kmer-ratio \
+    ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
+    --threads ${THREAD} \
+> ${OUTPUT_DIR}/${SAMPLE}_kmer_ratio.txt
+
 if [ ${DEBUG} = "false"]; then
     rm -rf ${WORK_DIR}
 fi
