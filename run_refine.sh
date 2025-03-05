@@ -5,10 +5,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "df:h:i:o:ps:t:u:" opt; do
+while getopts "b:df:h:i:o:ps:t:u:" opt; do
   case $opt in
+    b) INPUT_BAM=$OPTARG ;;
     d) DEBUG="true" ;;
-    f) FASTQ=$OPTARG ;;
+    f) INPUT_FASTQ=$OPTARG ;;
     h) HAP1_CONTIG=$OPTARG ;;
     i) HAP2_CONTIG=$OPTARG ;;
     o) OUTPUT_DIR=$OPTARG ;;
@@ -20,8 +21,8 @@ while getopts "df:h:i:o:ps:t:u:" opt; do
   esac
 done
 
-if [ -z "${FASTQ:-}" ]; then
-    echo "FASTQ file is not given. Please set -f {FASTQ_FILE}"; exit 1
+if [ -z "${INPUT_FASTQ:-}" ] && [ -z "${INPUT_BAM:-}" ]; then
+    echo "FASTQ/BAM file is not given. Please set -f {FASTQ_FILE} or -b {BAM_FILE}"; exit 1
 fi
 
 if [ -z "${DEBUG:-}" ]; then
@@ -49,11 +50,21 @@ mkdir -p ${WORK_DIR}
 mkdir -p ${WORK_DIR} 
 OUTPUT_BAM_PREFIX=${WORK_DIR}/${SAMPLE}
 cat ${HAP1_CONTIG} ${HAP2_CONTIG} > ${WORK_DIR}/reference.fa
-if [ ${DATA} == "hifi" ]; then
-    minimap2 -t ${THREAD} -ax asm5 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
-else
-    minimap2 -t ${THREAD} -ax asm10 ${WORK_DIR}/reference.fa ${FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
+
+if [ -z ${INPUT_BAM:-} ] && [ ! -z ${INPUT_FASTQ:-} ]; then
+    if [ ${DATA} == "hifi" ]; then
+        minimap2 -t ${THREAD} -ax asm5 ${WORK_DIR}/reference.fa ${INPUT_FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
+    else
+        minimap2 -t ${THREAD} -ax asm10 ${WORK_DIR}/reference.fa ${INPUT_FASTQ} | samtools view -Shb > ${OUTPUT_BAM_PREFIX}.unsorted
+    fi
+elif [ ! -z ${INPUT_BAM:-} ]; then
+    if [ ${DATA} == "hifi" ]; then
+        samtools fastq -@ 16 -TMM,ML ${INPUT_BAM} | minimap2 -t 16 -ax asm5 -y ${WORK_DIR}/reference.fa - | samtools view -@ 16 -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+    else
+        samtools fastq -@ 16 -TMM,ML ${INPUT_BAM} | minimap2 -t 16 -ax asm10 -y ${WORK_DIR}/reference.fa - | samtools view -@ 16 -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+    fi
 fi
+ 
 samtools sort -@ ${THREAD} -m 2G -n ${OUTPUT_BAM_PREFIX}.unsorted -o ${OUTPUT_BAM_PREFIX}.bam
 rm ${OUTPUT_BAM_PREFIX}.unsorted
 
@@ -72,8 +83,8 @@ meryl print threads=${THREAD} ${WORK_DIR}/meryl/hap2.uniq.meryl > ${WORK_DIR}/me
 for hap in hap1 hap2
 do
     awk '{if ($2 == 1) print}' ${WORK_DIR}/meryl/${hap}.uniq.tsv > ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv
-    gzip ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv
-    gzip ${WORK_DIR}/meryl/${hap}.uniq.tsv
+    gzip -f ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv
+    gzip -f ${WORK_DIR}/meryl/${hap}.uniq.tsv
 done
 
 
@@ -156,6 +167,6 @@ bam_refiner kmer-ratio \
     --threads ${THREAD} \
 > ${OUTPUT_DIR}/${SAMPLE}_kmer_ratio.txt
 
-if [ ${DEBUG} = "false"]; then
+if [ ${DEBUG} = "false" ]; then
     rm -rf ${WORK_DIR}
 fi
