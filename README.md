@@ -1,5 +1,5 @@
 # Bam_refiner
-Refine alignments by unique kmers
+Refine sequence read alignments to diploid reference genomes with haplotype-specific kmers
 
 ## Dependencies
 - clap >=4.3.9
