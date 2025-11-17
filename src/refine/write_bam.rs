@@ -249,6 +249,16 @@ fn write_bam(
             // New tag: reference kmer
             let aux_rk_tag = bam::record::Aux::U32(i.ref_kmer_cnt as u32);
             record.push_aux(b"RK", aux_rk_tag).unwrap();
+
+            // New tag: HR
+            if i.flag == 0 && i.kmers_list.len() == 2 {
+                let aux_hr_tag = bam::record::Aux::U8(1);
+                record.push_aux(b"HR", aux_hr_tag).unwrap();
+            } else {
+                let aux_hr_tag = bam::record::Aux::U8(0);
+                record.push_aux(b"HR", aux_hr_tag).unwrap();
+            }
+
             out.write(&record).unwrap();
             break;
         }

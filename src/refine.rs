@@ -38,7 +38,7 @@ pub fn run(
     let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
     let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
     let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, &hap1_set, &hap2_set, kmer_size);
-    let filtered_alignments = filter(&mut alignments);
+    let filtered_alignments = filter(&mut alignments, &hap1_set);
     write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, &hap1_set, &hap2_set);
     Ok(())
 }
@@ -398,11 +398,34 @@ fn process_read_alignments(
     counted_alignments
 }
 
-fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>) -> HashMap<String, Vec<NewRecord>> {
+fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>, hap1_set: &HashSet<String>) -> HashMap<String, Vec<NewRecord>> {
     let mut new_results: HashMap<String, Vec<NewRecord>> = HashMap::new();
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by_key(|info| info.is_secondary);
+
+        // Check for special case: 1 primary + 1 secondary, both with kmer_cnt == 0
+        if value.len() == 2 {
+            let primary_idx = value.iter().position(|info| info.is_secondary == 0);
+            let secondary_idx = value.iter().position(|info| info.is_secondary == 1);
+
+            if let (Some(prim_idx), Some(sec_idx)) = (primary_idx, secondary_idx) {
+                if value[prim_idx].kmer_cnt == 0 && value[sec_idx].kmer_cnt == 0 {
+                    let prim_in_hap1 = hap1_set.contains(&value[prim_idx].reference_name);
+                    let sec_in_hap1 = hap1_set.contains(&value[sec_idx].reference_name);
+
+                    // If secondary is in hap1 and primary is not, swap them
+                    if sec_in_hap1 && !prim_in_hap1 {
+                        // Swap primary and secondary flags
+                        value[prim_idx].is_secondary = 1;
+                        value[sec_idx].is_secondary = 0;
+                        // Re-sort after swapping
+                        value.sort_by_key(|info| info.is_secondary);
+                    }
+                }
+            }
+        }
+
         let mut prim_info = TempRecord::new();
         let mut supp_info: Vec<TempRecord> = Vec::new();
         let mut prim_kmer_cnts: Vec<usize> = Vec::new();
