@@ -65,9 +65,9 @@ if [ -z ${INPUT_BAM:-} ] && [ ! -z ${INPUT_FASTQ:-} ]; then
     fi
 elif [ ! -z ${INPUT_BAM:-} ]; then
     if [ ${DATA} == "hifi" ]; then
-        samtools fastq -@ 16 -TMM,ML ${INPUT_BAM} | minimap2 -t 16 -ax asm5 -y ${MINIMAP_OPTION} ${WORK_DIR}/reference.fa - | samtools view -@ 16 -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+        samtools fastq -@ ${THREAD} -TMM,ML ${INPUT_BAM} | minimap2 -t ${THREAD} -ax asm5 -y ${MINIMAP_OPTION} ${WORK_DIR}/reference.fa - | samtools view -@ ${THREAD} -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
     else
-        samtools fastq -@ 16 -TMM,ML ${INPUT_BAM} | minimap2 -t 16 -ax asm10 -y ${MINIMAP_OPTION} ${WORK_DIR}/reference.fa - | samtools view -@ 16 -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
+        samtools fastq -@ ${THREAD} -TMM,ML ${INPUT_BAM} | minimap2 -t ${THREAD} -ax asm10 -y ${MINIMAP_OPTION} ${WORK_DIR}/reference.fa - | samtools view -@ ${THREAD} -Shb - > ${OUTPUT_BAM_PREFIX}.unsorted
     fi
 fi
  
