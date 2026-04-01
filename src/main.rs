@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 #[derive(Parser)]
-#[command(author = "Yoshitaka Sakamoto", version = "0.3.3", about = "Refine alignments by unique kmers.", long_about = None)]
+#[command(author = "Yoshitaka Sakamoto", version = "0.3.6", about = "Refine alignments by unique kmers.", long_about = None)]
 struct Arguments {
     #[command(subcommand)]
     command: Commands,
