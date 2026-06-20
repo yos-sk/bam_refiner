@@ -55,6 +55,9 @@ enum Commands {
 
         #[arg(short = 'k', long)]
         kmer_size: u32,
+
+        #[clap(short = 'p', long, value_parser, default_value_t = 4)]
+        threads: usize,
     },
 
     Single {
@@ -69,6 +72,9 @@ enum Commands {
 
         #[arg(short = 'k', long)]
         kmer_size: u32,
+
+        #[clap(short = 'p', long, value_parser, default_value_t = 4)]
+        threads: usize,
     },
 }
 
@@ -112,6 +118,7 @@ fn main() {
             hap1_list,
             hap2_list,
             kmer_size,
+            threads,
         } => {
             if let Err(error) = refine::run(
                 input_bam,
@@ -121,6 +128,7 @@ fn main() {
                 hap1_list,
                 hap2_list,
                 *kmer_size,
+                *threads,
             ) {
                 eprintln!("{}", error);
                 process::exit(1);
@@ -132,12 +140,14 @@ fn main() {
             output_bam,
             ref_tabix,
             kmer_size,
+            threads,
         } => {
             if let Err(error) = single::run(
                 input_bam,
                 output_bam,
                 ref_tabix,
                 *kmer_size,
+                *threads,
             ) {
                 eprintln!("{}", error);
                 process::exit(1);

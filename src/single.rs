@@ -7,9 +7,14 @@ use rust_htslib::{
 };
 use std::collections::HashMap;
 use std::error::Error as stdError;
+use std::sync::Arc;
+use std::thread;
+
+use crossbeam_channel::{bounded, unbounded};
 
 use bam_refiner::{
     convert_u82String,
+    count_merged_blocks,
     get_cigartuples,
     get_current_ref_pos,
     get_read_position,
@@ -28,10 +33,11 @@ pub fn run(
     output_bam: &str,
     target_tabix: &str,
     kmer_size: u32,
+    threads: usize,
 ) -> Result<(), Box<dyn stdError>> {
-    let mut alignments = cal_count_marker(input_bam, target_tabix, kmer_size);
+    let mut alignments = cal_count_marker(input_bam, target_tabix, kmer_size, threads);
     let filtered_alignments = filter(&mut alignments);
-    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments);
+    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, threads);
     Ok(())
 }
 
@@ -39,22 +45,61 @@ fn cal_count_marker(
     bamfile: &str,
     target_tabix: &str,
     kmer_size: u32,
+    threads: usize,
 ) -> HashMap<String, Vec<RefineInfo>> {
-    let mut target_tbx_reader =
-        tbx::Reader::from_path(target_tabix).expect(&format!("Could not open {}", target_tabix));
+    // Build the tid -> reference name map once (shared, read-only).
+    let headers: Arc<HashMap<u32, String>> = {
+        let bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+        let mut h: HashMap<u32, String> = HashMap::new();
+        for name in bam.header().target_names() {
+            let r_tid = bam.header().tid(name).unwrap();
+            h.insert(r_tid, convert_u82String(name));
+        }
+        Arc::new(h)
+    };
 
-    let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    let n_workers = threads.max(1);
 
-    let header = bam.header().target_names();
+    // work channel: producer -> workers. Bounded to cap the number of heavy
+    // raw-record groups held in memory at once (backpressure).
+    let (work_tx, work_rx) = bounded::<Vec<bam::record::Record>>(n_workers * 2);
+    // result channel: workers -> collector. Carries only lightweight RefineInfo.
+    let (res_tx, res_rx) = unbounded::<(String, Vec<RefineInfo>)>();
 
-    let mut headers: HashMap<u32, String> = HashMap::new();
-    for name in header {
-        let r_tid = bam.header().tid(name).unwrap();
-        let r_string = convert_u82String(name);
-        headers.insert(r_tid, r_string);
+    // Spawn the worker pool. Each worker owns its own tabix reader, since
+    // tbx::Reader holds mutable fetch state and cannot be shared across threads.
+    let mut handles = Vec::with_capacity(n_workers);
+    for _ in 0..n_workers {
+        let work_rx = work_rx.clone();
+        let res_tx = res_tx.clone();
+        let headers = Arc::clone(&headers);
+        let target_tabix = target_tabix.to_string();
+        let handle = thread::spawn(move || {
+            let mut target_tbx_reader = tbx::Reader::from_path(&target_tabix)
+                .expect(&format!("Could not open {}", target_tabix));
+
+            for read_alignments in work_rx.iter() {
+                let read_id = convert_u82String(read_alignments[0].qname());
+                let t_alignments = process_read_alignments(
+                    &read_alignments,
+                    &headers,
+                    &mut target_tbx_reader,
+                    kmer_size,
+                );
+                res_tx.send((read_id, t_alignments)).expect("result channel closed");
+            }
+        });
+        handles.push(handle);
     }
+    // Drop the main thread's extra handles so the channels close once the
+    // producer/workers are done.
+    drop(work_rx);
+    drop(res_tx);
 
-    let mut alignments: HashMap<String, Vec<RefineInfo>> = HashMap::new();
+    // Producer: stream the (name-sorted) BAM in this thread and dispatch one
+    // group of records per read. Only this thread touches the BAM reader.
+    let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    bam.set_threads(n_workers).expect(&format!("Failure set {} threads", n_workers));
 
     let mut read_alignments: Vec<bam::record::Record> = Vec::new();
     let mut prev_read_id = String::new();
@@ -76,27 +121,31 @@ fn cal_count_marker(
         }
 
         if read_id != prev_read_id {
-            let t_alignments = process_read_alignments(
-                &read_alignments,
-                &headers,
-                &mut target_tbx_reader,
-                kmer_size,
-            );
-            alignments.insert(prev_read_id, t_alignments);
-            read_alignments = Vec::new();
+            work_tx
+                .send(std::mem::take(&mut read_alignments))
+                .expect("work channel closed");
             read_alignments.push(record);
             prev_read_id = read_id;
         } else {
             read_alignments.push(record);
         }
     }
-    let t_alignments = process_read_alignments(
-        &read_alignments,
-        &headers,
-        &mut target_tbx_reader,
-        kmer_size,
-    );
-    alignments.insert(prev_read_id, t_alignments);
+    if !read_alignments.is_empty() {
+        work_tx.send(read_alignments).expect("work channel closed");
+    }
+    // Closing the work channel lets the workers finish and drop their result
+    // senders, which in turn ends the collection loop below.
+    drop(work_tx);
+
+    // Collector: drain results into the map. The result channel is unbounded,
+    // so workers never block on send and cannot deadlock against the producer.
+    let mut alignments: HashMap<String, Vec<RefineInfo>> = HashMap::new();
+    for (read_id, t_alignments) in res_rx.iter() {
+        alignments.insert(read_id, t_alignments);
+    }
+    for handle in handles {
+        handle.join().expect("worker thread panicked");
+    }
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by(|t1, t2| {
@@ -190,7 +239,9 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
-        let mut kmer_cnt = 0;
+        // Reference start positions of matched haplotype-specific k-mers; merged
+        // into blocks at the end so one distinguishing base is counted once.
+        let mut matched_starts: Vec<u32> = Vec::new();
 
         let delimiter: u8 = 9; // '\t' for ASCII code
         let tid = match target_tbx_reader.tid(reference_name) {
@@ -237,7 +288,9 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        let mut ref_kmer_cnt: usize = 0;
+        // Reference start positions of haplotype-specific k-mers in this region;
+        // merged into blocks below so a single locus is counted once.
+        let mut ref_starts: Vec<u32> = Vec::new();
         let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
         for tbx_record in target_tbx_reader.records() {
             let in_record = tbx_record.unwrap();
@@ -263,10 +316,11 @@ fn process_read_alignments(
                     }
                 }
                  if cnt_flag {
-                    ref_kmer_cnt += 1;
+                    ref_starts.push(tmp_start);
                 }
             }
         }
+        let ref_kmer_cnt = count_merged_blocks(&mut ref_starts);
 
         if read_length < kmer_size {
             continue;
@@ -290,10 +344,11 @@ fn process_read_alignments(
                     read_strand.to_string(),
                 ) == *value
                 {
-                    kmer_cnt += 1;
+                    matched_starts.push(value.0);
                 }
             }
         }
+        let kmer_cnt = count_merged_blocks(&mut matched_starts);
 
         let info = RefineInfo {
             reference_name: reference_name.to_string(),

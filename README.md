@@ -1,11 +1,15 @@
-# Bam_refiner
-Refine sequence read alignments to diploid reference genomes with haplotype-specific kmers
+# bam_refiner
 
-## Dependencies
-- clap >=4.3.9
-- rust_htslib 0.43.0
+![Refine strategy overview](images/Refine_strategy_v2.png)
 
-I have not tried other versions of rust_htslib.
+Refine long-read alignments on a diploid genome assembly using haplotype-specific k-mers.
+
+When long reads are aligned to a concatenated diploid assembly (hap1 + hap2), reads originating from one haplotype can be placed on the other because the two haplotypes are nearly identical and only a small fraction of positions are truly distinguishing. `bam_refiner` re-evaluates each alignment by counting *haplotype-unique* k-mers — k-mers that occur in only one of the two haplotypes — carried by the read, and reassigns the read to the haplotype it most strongly supports. Alignments that cannot be confidently attributed to either haplotype are filtered out.
+
+The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](https://github.com/marbl/meryl.git), (2) locate those k-mers on each haplotype with `bam_refiner locate-kmers`, (3) align reads to the concatenated assembly, and (4) run `bam_refiner refine` to produce a haplotype-aware BAM. The `bam_refiner kmer-ratio` subcommand additionally reports a per-read hap1/hap2 k-mer ratio, which downstream tools (e.g. [PRCGAP](https://github.com/yos-sk/PRCGAP)) use for haplotype-resolved somatic variant calling.
+
+Both PacBio HiFi and Oxford Nanopore reads are supported.
+
 
 ## Install
 ```
@@ -19,21 +23,45 @@ cargo build --release
 You can use [hifiasm](https://github.com/chhylp123/hifiasm.git) or [verkko](https://github.com/marbl/verkko.git) to perform diploid genome assembly.
 
 ## Usage
-### 1. Singularity image
-You should make singularity image of bam_refiner.
+### 1. Container
+A Docker image of bam_refiner is published on Docker Hub. The image bundles `bam_refiner`, `split_bam`, `minimap2`, and `samtools`, and ships the `run_refine.sh` end-to-end wrapper.
 
 ```
-singularity exec bam_refiner_${VERSION}.sif \
-    /bin/bash run_refine.sh \
+docker pull yosakam2/bam_refiner:${VERSION}
+```
+
+Run with Docker (mount the working directory so inputs/outputs are visible inside the container):
+```
+docker run --rm \
+    -v ${PWD}:${PWD} -w ${PWD} \
+    yosakam2/bam_refiner:${VERSION} \
+    /bin/bash /tools/bam_refiner/run_refine.sh \
         -d \ # For debug mode to keep intermediate files
         -f ${FASTQ} \
         -h ${HAP1_ASSEMBLY} \ # fasta file of haplotype1 contigs
         -i ${HAP2_ASSEMBLY} \ # fasta file of haplotype2 contigs
         -o ${OUTPUT_DIR} \
-        -p # For parallel processing of bam_refiner
+        -p \ # For parallel processing of bam_refiner
         -s ${SAMPLE_NAME} \ # Sample name
-        -t ${THREADS} # Number of threads
+        -t ${THREADS} \ # Number of threads
         -u ${DATA_TYPE} # hifi or ont
+```
+
+On HPC environments without a Docker daemon, pull the same image as a Singularity image and run it with `singularity exec`:
+```
+singularity pull bam_refiner_${VERSION}.sif docker://yosakam2/bam_refiner:${VERSION}
+
+singularity exec bam_refiner_${VERSION}.sif \
+    /bin/bash /tools/bam_refiner/run_refine.sh \
+        -d \
+        -f ${FASTQ} \
+        -h ${HAP1_ASSEMBLY} \
+        -i ${HAP2_ASSEMBLY} \
+        -o ${OUTPUT_DIR} \
+        -p \
+        -s ${SAMPLE_NAME} \
+        -t ${THREADS} \
+        -u ${DATA_TYPE}
 ```
 
 ### 2. Step by step

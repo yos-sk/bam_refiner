@@ -258,6 +258,28 @@ pub fn get_current_ref_pos(
     (out_start, out_end)
 }
 
+/// Count maximal runs of *consecutive* haplotype-specific k-mers from their
+/// reference start positions. A single distinguishing base makes up to k
+/// k-mers haplotype-specific at consecutive start positions (gap == 1); those
+/// collapse into one run and are counted once instead of up to k times,
+/// removing the over-counting bias. A gap > 1 means a non-specific position
+/// breaks the run, so distinct loci (separated by >= k bp) stay separate.
+pub fn count_merged_blocks(starts: &mut Vec<u32>) -> usize {
+    if starts.is_empty() {
+        return 0;
+    }
+    starts.sort_unstable();
+    let mut blocks: usize = 1;
+    let mut prev = starts[0];
+    for &s in starts.iter().skip(1) {
+        if s > prev + 1 {
+            blocks += 1;
+        }
+        prev = s;
+    }
+    blocks
+}
+
 pub fn open_file<P: AsRef<Path>>(p: P) -> Result<Box<dyn BufRead>, Box<dyn Error>> {
     let r = File::open(p.as_ref())?;
     let ext = p.as_ref().extension();

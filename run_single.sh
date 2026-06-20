@@ -99,41 +99,14 @@ bam_refiner locate-kmers \
 bgzip -f ${OUTPUT_DIR}/kmerposition.bed
 tabix -p bed ${OUTPUT_DIR}/kmerposition.bed.gz
 
-# Step 4: Refine BAM file
-if [ $OPTION_SPLIT = "true" ]
-then
-    mkdir -p ${WORK_DIR}/split
-    SIZE=`split_bam size --input-file ${BAM}`
-    split_bam split \
-        --input-file ${BAM} \
-        --output-dir ${WORK_DIR}/split \
-        --input-size ${SIZE} \
-        --num-split ${THREAD}
-
-    for i in $(seq 0 $(( ${THREAD} - 1))); do
-        bam_refiner single \
-            --input-bam ${WORK_DIR}/split/${i}.bam \
-            --output-bam ${WORK_DIR}/split/${i}.refined.bam \
-            --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
-            --kmer-size 21 \
-            1>${WORK_DIR}/split/${i}.bam_refiner.tsv 2>${WORK_DIR}/split/${i}.bam_refiner.log &
-    done
-    wait
-    
-    cat ${WORK_DIR}/split/*.bam_refiner.tsv > ${OUTPUT_DIR}/bam_refiner_result.tsv
-    cat ${WORK_DIR}/split/*.bam_refiner.log > ${OUTPUT_DIR}/bam_refiner.log
-    samtools merge \
-        -@ ${THREAD} \
-        -o ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
-        ${WORK_DIR}/split/*.refined.bam
-else
-    bam_refiner single \
-        --input-bam ${BAM} \
-        --output-bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
-        --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
-        --kmer-size 21 \
-        1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
-fi
+# Step 4: Refine BAM file (multi-threaded; no physical splitting required)
+bam_refiner single \
+    --input-bam ${BAM} \
+    --output-bam ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam \
+    --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
+    --kmer-size 21 \
+    --threads ${THREAD} \
+    1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
 
 samtools sort \
     -@ ${THREAD} \

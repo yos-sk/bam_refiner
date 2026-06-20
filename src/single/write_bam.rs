@@ -13,11 +13,14 @@ use bam_refiner::{
 pub fn process_write_bam(
     bamfile: &str,
     output_bam: &str,
-    filtered_alignments: &HashMap<String, Vec<NewRecord>>) {
+    filtered_alignments: &HashMap<String, Vec<NewRecord>>,
+    threads: usize) {
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    bam.set_threads(threads.max(1)).expect(&format!("Failure set {} threads", threads));
     let header = bam::Header::from_template(bam.header());
     let mut out = bam::Writer::from_path(output_bam, &header, bam::Format::Bam)
         .expect(&format!("Could not open {}", output_bam));
+    out.set_threads(threads.max(1)).expect(&format!("Failure set {} threads", threads));
 
     let mut headers: HashMap<u32, String> = HashMap::new();
     for name in bam.header().target_names() {
