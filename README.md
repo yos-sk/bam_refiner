@@ -2,7 +2,7 @@
 
 ![Refine strategy overview](images/Refine_strategy_v2.png)
 
-Refine long-read alignments on a diploid genome assembly using haplotype-specific k-mers.
+Refine long-read alignments on a diploid genome assembly using haplotype-specific k-mers as markers.
 
 When long reads are aligned to a concatenated diploid assembly (hap1 + hap2), reads originating from one haplotype can be placed on the other because the two haplotypes are nearly identical and only a small fraction of positions are truly distinguishing. `bam_refiner` re-evaluates each alignment by counting *haplotype-unique* k-mers — k-mers that occur in only one of the two haplotypes — carried by the read, and reassigns the read to the haplotype it most strongly supports. Alignments that cannot be confidently attributed to either haplotype are filtered out.
 
@@ -10,6 +10,15 @@ The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](http
 
 Both PacBio HiFi and Oxford Nanopore reads are supported.
 
+## Read classification
+
+Using haplotype-specific 21-mer markers (21-mers occurring exactly once in one haplotype and absent in the other), `bam_refiner` sorts each read into one of three categories, shown in the figure above (four representative cases, reads r1–r4, before and after refinement). The definitions follow the [PRCGAP](https://github.com/yos-sk/PRCGAP) manuscript:
+
+- **Haplotype-resolved** (colored, solid): the read carries haplotype-specific markers that determine its haplotype of origin. Two cases fall here — **(1) Marker consistent**, where the markers agree with the original alignment, and **(2) Reassignment**, where the markers point to the opposite haplotype and the read's primary alignment is moved there (red dashed arrow in the figure).
+- **Position-only** (gray, solid): **(3) No marker** — the read aligns to the corresponding position on both haplotypes but carries no haplotype-specific marker, so its haplotype of origin cannot be determined. It is kept by position. Such reads can also align to the same position on the other haplotype and generate redundant, unphased calls, which downstream PRCGAP steps consolidate.
+- **Multi-mapped** (gray, dashed): **(4) Multiple loci** — the read aligns to several distinct loci and generally has low mapping quality, so it usually does not contribute to variant calling.
+
+Both haplotype-resolved and position-only reads are used for somatic variant calling, whereas multi-mapped reads are typically excluded. In PRCGAP, a median of ~78% of mapped reads were haplotype-resolved, ~20% position-only, and ~2% multi-mapped.
 
 ## Install
 ```
@@ -47,7 +56,7 @@ docker run --rm \
         -u ${DATA_TYPE} # hifi or ont
 ```
 
-On HPC environments without a Docker daemon, pull the same image as a Singularity image and run it with `singularity exec`:
+If you prefer Singularity, pull the same image as a Singularity image and run it with `singularity exec`:
 ```
 singularity pull bam_refiner_${VERSION}.sif docker://yosakam2/bam_refiner:${VERSION}
 
@@ -69,8 +78,7 @@ singularity exec bam_refiner_${VERSION}.sif \
 You can use [meryl](https://github.com/marbl/meryl.git) to count kmers. 
 
 ```
-for hap in hap1 hap2
-do
+for hap in hap1 hap2; do
     meryl count k=21 threads=16 ${hap}_contig.fa output ${hap}.meryl
 done
 
@@ -80,15 +88,13 @@ meryl difference hap2.meryl hap1.meryl output hap2.uniq.meryl
 meryl print threads=16 hap1.uniq.meryl > hap1.uniq.tsv
 meryl print threads=16 hap2.uniq.meryl > hap2.uniq.tsv
 
-for hap in hap1 hap2
-do
+for hap in hap1 hap2; do
     awk '{if ($2 == 1) print}' ${hap}.uniq.tsv > ${hap}.cnt.uniq.tsv
     gzip ${hap}.cnt.uniq.tsv
     gzip ${hap}.uniq.tsv
 done
 
-for hap in hap1 hap2
-do
+for hap in hap1 hap2; do
     bam_refiner locate-kmers \
         -i ${WORK_DIR}/meryl/${hap}.cnt.uniq.tsv.gz \
         -f ${hap}_contig \
