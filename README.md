@@ -12,13 +12,11 @@ Both PacBio HiFi and Oxford Nanopore reads are supported.
 
 ## Read classification
 
-Using haplotype-specific 21-mer markers (21-mers occurring exactly once in one haplotype and absent in the other), `bam_refiner` sorts each read into one of three categories, shown in the figure above (four representative cases, reads r1–r4, before and after refinement). The definitions follow the [PRCGAP](https://github.com/yos-sk/PRCGAP) manuscript:
+Using haplotype-specific k-mers (k-mers occurring exactly once in one haplotype and absent in the other), `bam_refiner` sorts each read into one of three categories, shown in the figure above (four representative cases, reads r1–r4, before and after refinement).
 
 - **Haplotype-resolved** (colored, solid): the read carries haplotype-specific markers that determine its haplotype of origin. Two cases fall here — **(1) Marker consistent**, where the markers agree with the original alignment, and **(2) Reassignment**, where the markers point to the opposite haplotype and the read's primary alignment is moved there (red dashed arrow in the figure).
 - **Position-only** (gray, solid): **(3) No marker** — the read aligns to the corresponding position on both haplotypes but carries no haplotype-specific marker, so its haplotype of origin cannot be determined. It is kept by position. Such reads can also align to the same position on the other haplotype and generate redundant, unphased calls, which downstream PRCGAP steps consolidate.
 - **Multi-mapped** (gray, dashed): **(4) Multiple loci** — the read aligns to several distinct loci and generally has low mapping quality, so it usually does not contribute to variant calling.
-
-Both haplotype-resolved and position-only reads are used for somatic variant calling, whereas multi-mapped reads are typically excluded. In PRCGAP, a median of ~78% of mapped reads were haplotype-resolved, ~20% position-only, and ~2% multi-mapped.
 
 ## Install
 ```
