@@ -6,7 +6,7 @@ Refine long-read alignments on a diploid genome assembly using haplotype-specifi
 
 When long reads are aligned to a concatenated diploid assembly (hap1 + hap2), reads originating from one haplotype can be placed on the other because the two haplotypes are nearly identical and only a small fraction of positions are truly distinguishing. `bam_refiner` re-evaluates each alignment by counting *haplotype-unique* k-mers — k-mers that occur in only one of the two haplotypes — carried by the read, and reassigns the read to the haplotype it most strongly supports. Alignments that cannot be confidently attributed to either haplotype are filtered out.
 
-The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](https://github.com/marbl/meryl.git), (2) locate those k-mers on each haplotype with `bam_refiner locate-kmers`, (3) align reads to the concatenated assembly, and (4) run `bam_refiner refine` to produce a haplotype-aware BAM. The `bam_refiner kmer-ratio` subcommand additionally reports a per-read hap1/hap2 k-mer ratio, which downstream tools (e.g. [PRCGAP](https://github.com/yos-sk/PRCGAP)) use for haplotype-resolved somatic variant calling.
+The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](https://github.com/marbl/meryl.git), (2) locate those k-mers on each haplotype with `bam_refiner locate-kmers`, (3) align reads to the concatenated assembly, and (4) run `bam_refiner refine` to produce a haplotype-aware BAM. The `bam_refiner kmer-ratio` subcommand additionally reports, for each read, the fraction of the haplotype-specific loci available at its placement that it actually matched, which downstream tools (e.g. [PRCGAP](https://github.com/yos-sk/PRCGAP)) use for haplotype-resolved somatic variant calling.
 
 Both PacBio HiFi and Oxford Nanopore reads are supported.
 
@@ -48,10 +48,9 @@ docker run --rm \
         -h ${HAP1_ASSEMBLY} \ # fasta file of haplotype1 contigs
         -i ${HAP2_ASSEMBLY} \ # fasta file of haplotype2 contigs
         -o ${OUTPUT_DIR} \
-        -p \ # For parallel processing of bam_refiner
         -s ${SAMPLE_NAME} \ # Sample name
-        -t ${THREADS} \ # Number of threads
-        -u ${DATA_TYPE} # hifi or ont
+        -t ${THREADS} \ # Number of threads for minimap2, samtools and bam_refiner
+        -u ${DATA_TYPE} # hifi or ont; also selects the k-mer ratio prior (0.8 / 0.6)
 ```
 
 If you prefer Singularity, pull the same image as a Singularity image and run it with `singularity exec`:
@@ -65,7 +64,6 @@ singularity exec bam_refiner_${VERSION}.sif \
         -h ${HAP1_ASSEMBLY} \
         -i ${HAP2_ASSEMBLY} \
         -o ${OUTPUT_DIR} \
-        -p \
         -s ${SAMPLE_NAME} \
         -t ${THREADS} \
         -u ${DATA_TYPE}
@@ -177,5 +175,50 @@ samtools sort \
     output_refined.bam 
 samtools index output_refined.sorted.bam 
 ```
+
+#### Step 5: Report the per-read k-mer ratio
+
+```
+# HiFi
+./target/release/bam_refiner kmer-ratio \
+    output_refined.sorted.bam \
+    --threads 8 \
+    --prior-mean 0.8 \
+> ${SAMPLE}_kmer_ratio.txt
+
+# ONT
+./target/release/bam_refiner kmer-ratio \
+    output_refined.sorted.bam \
+    --threads 8 \
+    --prior-mean 0.6 \
+> ${SAMPLE}_kmer_ratio.txt
+```
+
+**Set `--prior-mean` to 0.8 for HiFi and 0.6 for ONT.** There is no single correct default,
+so the built-in `0.5` is deliberately neutral and is not the right value for either data
+type — pass it explicitly. (`run_refine.sh` picks it from `-u hifi|ont` for you.)
+
+The reported value is the fraction of the haplotype-specific loci a read could have
+observed that it actually matched, smoothed as
+
+```
+(PK + prior_mean * prior_weight) / (RK + prior_weight)
+```
+
+where `PK` (`SK` for supplementary records) is the loci the read matched at its assigned
+placement and `RK` the loci that placement had to offer. The smoothing exists because
+`RK == 0` — a read spanning no haplotype-specific locus at all, which is 16 % of HiFi and
+20 % of ONT reads — used to come out as a raw `0/0 = 1.0`, indistinguishable from a read
+that matched every marker available to it. Such a read now reports `prior_mean` instead,
+and reads with a small `RK` are pulled toward it in proportion, so `1/1` no longer claims
+as much as `1000/1000`.
+
+The recommended values are chosen against the downstream cutoff rather than derived from
+the data: PRCGAP retains reads at `Kmer_ratio >= 0.6`, and 0.6 (ONT) / 0.8 (HiFi) put a
+no-evidence read just on the retained side of it. The intent is to keep those reads
+available to variant calling instead of silently dropping them, while still ranking them
+below any read that carries actual marker evidence. Setting `--prior-mean` below 0.6
+discards them; `--prior-weight 0` turns the smoothing off entirely and restores the old
+`0/0 = 1.0`.
 
 If you want to use bam_refiner for the alignment data to the exisitng reference genome (e.g. GRCh38 or CHM13), plase try single_mode branch and see [document](https://github.com/yos-sk/bam_refiner/blob/master/document/single.md).
