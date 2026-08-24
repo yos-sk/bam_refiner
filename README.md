@@ -6,7 +6,7 @@ Refine long-read alignments on a diploid genome assembly using haplotype-specifi
 
 When long reads are aligned to a concatenated diploid assembly (hap1 + hap2), reads originating from one haplotype can be placed on the other because the two haplotypes are nearly identical and only a small fraction of positions are truly distinguishing. `bam_refiner` re-evaluates each alignment by counting *haplotype-unique* k-mers — k-mers that occur in only one of the two haplotypes — carried by the read, and reassigns the read to the haplotype it most strongly supports. Alignments that cannot be confidently attributed to either haplotype are filtered out.
 
-The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](https://github.com/marbl/meryl.git), (2) locate those k-mers on each haplotype with `bam_refiner locate-kmers`, (3) align reads to the concatenated assembly, and (4) run `bam_refiner refine` to produce a haplotype-aware BAM. The `bam_refiner kmer-ratio` subcommand additionally reports, for each read, the fraction of the haplotype-specific loci available at its placement that it actually matched, which downstream tools (e.g. [PRCGAP](https://github.com/yos-sk/PRCGAP)) use for haplotype-resolved somatic variant calling.
+The typical workflow is: (1) build haplotype-unique k-mer sets with [meryl](https://github.com/marbl/meryl.git), (2) locate those k-mers on each haplotype with `bam_refiner locate-kmers`, (3) align reads to the concatenated assembly, and (4) run `bam_refiner refine` to produce a haplotype-aware BAM. The `bam_refiner kmer-ratio` subcommand additionally reports, for each read, the fraction of the haplotype-specific loci it could observe that it actually matched, which downstream tools (e.g. [PRCGAP](https://github.com/yos-sk/PRCGAP)) use for haplotype-resolved somatic variant calling.
 
 Both PacBio HiFi and Oxford Nanopore reads are supported.
 
@@ -215,13 +215,17 @@ observed that it actually matched, smoothed as
 (PK + prior_mean * prior_weight) / (RK + prior_weight)
 ```
 
-where `PK` (`SK` for supplementary records) is the loci the read matched at its assigned
-placement and `RK` the loci that placement had to offer. The smoothing exists because
-`RK == 0` — a read spanning no haplotype-specific locus at all, which is 16 % of HiFi and
-20 % of ONT reads — used to come out as a raw `0/0 = 1.0`, indistinguishable from a read
-that matched every marker available to it. Such a read now reports `prior_mean` instead,
-and reads with a small `RK` are pulled toward it in proportion, so `1/1` no longer claims
-as much as `1000/1000`.
+`RK` is the number of haplotype-specific loci the read could observe and `PK` the number
+it matched, both summed over the read's primary **and** supplementary records (`SK` is the
+supplementary counterpart of `PK`). Only unmapped and secondary records are skipped, which
+matches how `refine` assigns the haplotype in the first place. A split read therefore gets
+one ratio covering all of its segments, not one per segment.
+
+The smoothing exists because `RK == 0` — a read spanning no haplotype-specific locus at
+all, which is 16 % of HiFi and 20 % of ONT reads — used to come out as a raw `0/0 = 1.0`,
+indistinguishable from a read that matched every marker available to it. Such a read now
+reports `prior_mean` instead, and reads with a small `RK` are pulled toward it in
+proportion, so `1/1` no longer claims as much as `1000/1000`.
 
 The recommended values are chosen against the downstream cutoff rather than derived from
 the data: PRCGAP retains reads at `Kmer_ratio >= 0.6`, and 0.6 (ONT) / 0.8 (HiFi) put a
