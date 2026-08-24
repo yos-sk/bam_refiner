@@ -5,7 +5,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "b:df:h:i:m:o:ps:t:u:" opt; do
+while getopts "b:df:h:i:M:m:o:pR:s:t:u:" opt; do
   case $opt in
     b) INPUT_BAM=$OPTARG ;;
     d) DEBUG="true" ;;
@@ -15,6 +15,8 @@ while getopts "b:df:h:i:m:o:ps:t:u:" opt; do
     m) MINIMAP_OPTION=$OPTARG ;;
     o) OUTPUT_DIR=$OPTARG ;;
     p) OPTION_SPLIT="true" ;;
+    M) MIN_MARKERS=$OPTARG ;;
+    R) RATIO_THRESHOLD=$OPTARG ;;
     s) SAMPLE=$OPTARG ;;
     t) THREAD=$OPTARG ;;
     u) DATA=$OPTARG ;;
@@ -43,6 +45,16 @@ fi
 if [ -z "${OPTION_SPLIT:-}" ]; then
     echo "Split option is not given. Bam_refiner will be performed without splitting a BAM file"
     OPTION_SPLIT="false"
+fi
+
+if [ -z "${RATIO_THRESHOLD:-}" ]; then
+    echo "Ratio threshold is not given. Ratio threshold is set to default (0.5)"
+    RATIO_THRESHOLD=0.5
+fi
+
+if [ -z "${MIN_MARKERS:-}" ]; then
+    echo "Minimum marker count is not given. It is set to default (1 = disabled)"
+    MIN_MARKERS=1
 fi
 
 if [ -z "${SAMPLE:-}" ]; then
@@ -125,6 +137,8 @@ bam_refiner refine \
     --hap2-list ${OUTPUT_DIR}/hap2_list.txt.gz \
     --kmer-size 21 \
     --threads ${THREAD} \
+    --ratio-threshold ${RATIO_THRESHOLD} \
+    --min-markers ${MIN_MARKERS} \
     1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
 
 samtools sort \
@@ -137,9 +151,18 @@ rm ${OUTPUT_DIR}/${SAMPLE}_bam_refined.bam
 gzip -f ${OUTPUT_DIR}/bam_refiner_result.tsv
 gzip -f ${OUTPUT_DIR}/bam_refiner.log
 
+# Reads spanning no haplotype-specific locus fall back to this value instead of
+# claiming a perfect 1.0. ONT is noisier, so its no-evidence reads get less credit.
+if [ ${DATA} == "hifi" ]; then
+    PRIOR_MEAN=0.8
+else
+    PRIOR_MEAN=0.6
+fi
+
 bam_refiner kmer-ratio \
     ${OUTPUT_DIR}/${SAMPLE}_bam_refined.sorted.bam \
     --threads ${THREAD} \
+    --prior-mean ${PRIOR_MEAN} \
 > ${OUTPUT_DIR}/${SAMPLE}_kmer_ratio.txt
 
 if [ ${DEBUG} = "false" ]; then

@@ -1,4 +1,5 @@
 use rust_htslib::bam;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::error::Error;
@@ -258,26 +259,117 @@ pub fn get_current_ref_pos(
     (out_start, out_end)
 }
 
-/// Count maximal runs of *consecutive* haplotype-specific k-mers from their
-/// reference start positions. A single distinguishing base makes up to k
-/// k-mers haplotype-specific at consecutive start positions (gap == 1); those
-/// collapse into one run and are counted once instead of up to k times,
-/// removing the over-counting bias. A gap > 1 means a non-specific position
-/// breaks the run, so distinct loci (separated by >= k bp) stay separate.
-pub fn count_merged_blocks(starts: &mut Vec<u32>) -> usize {
-    if starts.is_empty() {
-        return 0;
-    }
-    starts.sort_unstable();
-    let mut blocks: usize = 1;
-    let mut prev = starts[0];
-    for &s in starts.iter().skip(1) {
-        if s > prev + 1 {
-            blocks += 1;
+/// Groups of "effectively the same" haplotype-specific k-mers, built from the
+/// reference k-mers of one region.
+///
+/// A single distinguishing base makes up to k k-mers haplotype-specific, at
+/// consecutive reference start positions (gap == 1). They all report the same
+/// locus, so they belong to one block: a read matching any of them adds 1 to
+/// the count instead of up to k, which removes the over-counting bias. Two
+/// rules cut a block:
+///
+/// - a gap > 1, i.e. a non-specific start position breaks the run;
+/// - a length of `kmer_size` k-mers, since a run longer than that cannot come
+///   from a single distinguishing base and must span more than one locus.
+///
+/// Blocks are defined on the reference k-mer set, not on the k-mers a read
+/// happens to match, so a read that hits only part of a run still scores 1 for
+/// that locus and the count stays comparable between competing placements.
+pub struct KmerBlocks {
+    ids: HashMap<u32, usize>,
+}
+
+impl KmerBlocks {
+    /// Build the blocks from the reference start positions of the
+    /// haplotype-specific k-mers found in a region (order does not matter).
+    pub fn new(starts: &[u32], kmer_size: u32) -> Self {
+        let mut sorted: Vec<u32> = starts.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+
+        let mut ids: HashMap<u32, usize> = HashMap::with_capacity(sorted.len());
+        let mut n_blocks: usize = 0;
+        let mut block_len: u32 = 0;
+        let mut prev: Option<u32> = None;
+
+        for &s in sorted.iter() {
+            let extends_block = match prev {
+                Some(p) => s == p + 1 && block_len < kmer_size,
+                None => false,
+            };
+            if !extends_block {
+                n_blocks += 1;
+                block_len = 0;
+            }
+            block_len += 1;
+            ids.insert(s, n_blocks - 1);
+            prev = Some(s);
         }
-        prev = s;
+        KmerBlocks { ids }
     }
-    blocks
+
+    /// Number of distinct blocks (~ distinguishing loci) covered by `starts`.
+    /// Positions that are not part of the reference set are ignored.
+    pub fn count_hits(&self, starts: &[u32]) -> usize {
+        let mut hit: HashSet<usize> = HashSet::new();
+        for s in starts.iter() {
+            if let Some(&id) = self.ids.get(s) {
+                hit.insert(id);
+            }
+        }
+        hit.len()
+    }
+}
+
+/// Decide whether the best placement of a read segment is supported strongly
+/// enough to be adopted. `counts` holds the haplotype-specific k-mer counts of
+/// every placement competing for the same stretch of the read. The best count
+/// must beat the runner-up and hold at least `threshold` of the evidence the
+/// two of them share:
+///
+/// ```text
+/// max / (max + second_max) >= threshold
+/// ```
+///
+/// A threshold of 0.5 therefore only requires a strict majority, i.e. any
+/// margin at all; raising it demands a clearer separation before the read is
+/// called for one haplotype. When no placement carries a marker (max == 0) the
+/// segment is always left undetermined.
+/// Decide whether a winning placement rests on enough marker evidence.
+///
+/// A bare `kmer_cnt >= min_markers` floor is the wrong shape: most reads with
+/// only one or two markers are not weakly supported, they simply sit where the
+/// two haplotypes differ at only one or two loci — on BL2009 HiFi, 88-91% of
+/// them matched *every* marker their region offered, and their rival matched
+/// none. What warrants suspicion is a read that matched few markers **while
+/// more were on offer**, which on ONT is half of the one-marker reads. So the
+/// floor only applies while the read is also leaving markers unmatched:
+///
+/// ```text
+/// enough  <=>  kmer_cnt >= min_markers  ||  kmer_cnt >= ref_kmer_cnt
+/// ```
+///
+/// `min_markers == 1` disables the rule, since `kmer_cnt == 0` is already
+/// undetermined.
+pub fn has_enough_markers(kmer_cnt: usize, ref_kmer_cnt: usize, min_markers: usize) -> bool {
+    kmer_cnt >= min_markers || kmer_cnt >= ref_kmer_cnt
+}
+
+pub fn is_confident_placement(counts: &[usize], threshold: f64) -> bool {
+    let mut max: usize = 0;
+    let mut second: usize = 0;
+    for &c in counts.iter() {
+        if c > max {
+            second = max;
+            max = c;
+        } else if c > second {
+            second = c;
+        }
+    }
+    if max == 0 || max == second {
+        return false;
+    }
+    max as f64 / (max + second) as f64 >= threshold
 }
 
 pub fn open_file<P: AsRef<Path>>(p: P) -> Result<Box<dyn BufRead>, Box<dyn Error>> {
@@ -291,5 +383,86 @@ pub fn open_file<P: AsRef<Path>>(p: P) -> Result<Box<dyn BufRead>, Box<dyn Error
     } else {
         let buf_reader = BufReader::new(r);
         Ok(Box::new(buf_reader))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const K: u32 = 21;
+
+    #[test]
+    fn one_run_shorter_than_k_is_one_block() {
+        let starts: Vec<u32> = (100..115).collect(); // 15 consecutive k-mers
+        let blocks = KmerBlocks::new(&starts, K);
+        assert_eq!(blocks.count_hits(&starts), 1);
+        // Matching a single k-mer of the run scores the locus once.
+        assert_eq!(blocks.count_hits(&[107]), 1);
+    }
+
+    #[test]
+    fn a_gap_separates_loci() {
+        let mut starts: Vec<u32> = (100..110).collect();
+        starts.extend(200..205);
+        let blocks = KmerBlocks::new(&starts, K);
+        assert_eq!(blocks.count_hits(&starts), 2);
+        assert_eq!(blocks.count_hits(&[105, 106]), 1);
+        assert_eq!(blocks.count_hits(&[105, 201]), 2);
+    }
+
+    #[test]
+    fn a_run_longer_than_k_is_cut_every_k_kmers() {
+        // 45 consecutive k-mers cannot come from one distinguishing base:
+        // 21 + 21 + 3 => 3 blocks.
+        let starts: Vec<u32> = (0..45).collect();
+        let blocks = KmerBlocks::new(&starts, K);
+        assert_eq!(blocks.count_hits(&starts), 3);
+        assert_eq!(blocks.count_hits(&[0, 20]), 1);
+        assert_eq!(blocks.count_hits(&[0, 21]), 2);
+        assert_eq!(blocks.count_hits(&[0, 21, 42]), 3);
+    }
+
+    #[test]
+    fn unknown_and_duplicate_positions_do_not_inflate_the_count() {
+        let starts: Vec<u32> = (100..110).collect();
+        let blocks = KmerBlocks::new(&starts, K);
+        assert_eq!(blocks.count_hits(&[]), 0);
+        assert_eq!(blocks.count_hits(&[100, 100, 101]), 1);
+        assert_eq!(blocks.count_hits(&[500]), 0);
+    }
+
+    #[test]
+    fn threshold_of_half_keeps_the_previous_strict_majority_rule() {
+        assert!(is_confident_placement(&[5, 4], 0.5));
+        assert!(is_confident_placement(&[1], 0.5));
+        assert!(!is_confident_placement(&[4, 4], 0.5));
+        assert!(!is_confident_placement(&[0, 0], 0.5));
+        assert!(!is_confident_placement(&[], 0.5));
+    }
+
+    #[test]
+    fn the_marker_floor_only_bites_when_markers_were_missed() {
+        // Disabled by default.
+        assert!(has_enough_markers(1, 50, 1));
+        // Matched everything the region offered: kept however few that was.
+        assert!(has_enough_markers(1, 1, 3));
+        assert!(has_enough_markers(2, 2, 3));
+        // Few markers *and* more were available: rejected.
+        assert!(!has_enough_markers(1, 2, 3));
+        assert!(!has_enough_markers(2, 50, 3));
+        // At or above the floor: kept regardless of what was missed.
+        assert!(has_enough_markers(3, 50, 3));
+    }
+
+    #[test]
+    fn a_higher_threshold_rejects_a_thin_margin() {
+        // 5 / (5 + 4) = 0.56
+        assert!(!is_confident_placement(&[5, 4], 0.8));
+        // 9 / (9 + 1) = 0.9
+        assert!(is_confident_placement(&[9, 1], 0.8));
+        // Only the runner-up matters, not the rest of the field.
+        assert!(is_confident_placement(&[9, 1, 1, 1], 0.8));
+        assert!(!is_confident_placement(&[9, 5, 1], 0.8));
     }
 }

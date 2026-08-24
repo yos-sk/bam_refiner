@@ -4,8 +4,19 @@ use std::error::Error;
 use std::collections::HashMap;
 
 
-pub fn run(input_bam: &str, threads: usize) -> Result<(), Box<dyn Error>> {
-    let mut kmers: HashMap<String, Vec<u32>> = HashMap::new();  
+pub fn run(
+    input_bam: &str,
+    threads: usize,
+    prior_mean: f64,
+    prior_weight: f64,
+) -> Result<(), Box<dyn Error>> {
+    if !(0.0..=1.0).contains(&prior_mean) {
+        return Err(format!("--prior-mean must be within [0.0, 1.0], got {}", prior_mean).into());
+    }
+    if prior_weight < 0.0 {
+        return Err(format!("--prior-weight must not be negative, got {}", prior_weight).into());
+    }
+    let mut kmers: HashMap<String, Vec<u32>> = HashMap::new();
     let mut bam = bam::Reader::from_path(input_bam).expect(&format!("Could not open {}", input_bam));
 
     bam.set_threads(threads).expect(&format!("Failure set {} threads", threads));
@@ -36,14 +47,21 @@ pub fn run(input_bam: &str, threads: usize) -> Result<(), Box<dyn Error>> {
     
     }
 
+    // Smoothed fraction of the haplotype-specific loci a read could observe that
+    // it actually matched:
+    //
+    //     (matched + prior_mean * prior_weight) / (available + prior_weight)
+    //
+    // The raw quotient is undefined when a read spans no distinguishing locus at
+    // all (available == 0, which is 16% of HiFi and 20% of ONT reads) and it was
+    // reported as 1.0 — the same value a read matching every marker gets, so
+    // "no evidence" was indistinguishable from "perfect agreement". Here that
+    // case falls back to prior_mean, and the same prior pulls small denominators
+    // toward it, so 1/1 no longer claims as much as 1000/1000.
     for (key, value) in kmers.iter() {
-        let freq: f64 = if value[0] == 0 {
-            1.0
-        } else {
-            value[1] as f64 / value[0] as f64
-        };
+        let freq: f64 =
+            (value[1] as f64 + prior_mean * prior_weight) / (value[0] as f64 + prior_weight);
         println!("{}\t{}\t{}\t{}", key, value[0], value[1], freq);
-        
     }
     Ok(())
 }

@@ -205,7 +205,9 @@ fn write_bam(
             }
             // mapping quality
             if i.flag == 0 {
-                let mapq: u8 = 60 / i.kmers_list.len() as u8;
+                // Divide in usize: casting the length to u8 first wraps at 256
+                // placements (0 -> division by zero, 257 -> a full-confidence 60).
+                let mapq: u8 = (60 / i.kmers_list.len().max(1)) as u8;
                 record.set_mapq(mapq);
             } else {
                 let mapq: u8 = 60;

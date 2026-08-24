@@ -5,7 +5,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "b:df:l:m:o:pr:s:t:" opt; do
+while getopts "b:df:l:M:m:o:pR:r:s:t:" opt; do
   case $opt in
     b) INPUT_BAM=$OPTARG ;;
     d) DEBUG="true" ;;
@@ -14,6 +14,8 @@ while getopts "b:df:l:m:o:pr:s:t:" opt; do
     m) MINIMAP_OPTION=$OPTARG ;;
     o) OUTPUT_DIR=$OPTARG ;;
     p) OPTION_SPLIT="true" ;;
+    M) MIN_MARKERS=$OPTARG ;;
+    R) RATIO_THRESHOLD=$OPTARG ;;
     r) REFERENCE=$OPTARG ;;
     s) SAMPLE=$OPTARG ;;
     t) THREAD=$OPTARG ;;
@@ -45,6 +47,16 @@ fi
 if [ -z "${OPTION_SPLIT:-}" ]; then
     echo "Split option is not given. Bam_refiner will be performed without splitting a BAM file"
     OPTION_SPLIT="false"
+fi
+
+if [ -z "${RATIO_THRESHOLD:-}" ]; then
+    echo "Ratio threshold is not given. Ratio threshold is set to default (0.5)"
+    RATIO_THRESHOLD=0.5
+fi
+
+if [ -z "${MIN_MARKERS:-}" ]; then
+    echo "Minimum marker count is not given. It is set to default (1 = disabled)"
+    MIN_MARKERS=1
 fi
 
 if [ -z "${REFERENCE:-}" ]; then
@@ -106,6 +118,8 @@ bam_refiner single \
     --ref-tabix ${OUTPUT_DIR}/kmerposition.bed.gz \
     --kmer-size 21 \
     --threads ${THREAD} \
+    --ratio-threshold ${RATIO_THRESHOLD} \
+    --min-markers ${MIN_MARKERS} \
     1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
 
 samtools sort \

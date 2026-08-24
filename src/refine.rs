@@ -16,13 +16,15 @@ use crossbeam_channel::{bounded, unbounded};
 
 use bam_refiner::{
     convert_u82String,
-    count_merged_blocks,
     get_cigartuples,
     get_current_ref_pos,
     get_read_position,
+    has_enough_markers,
+    is_confident_placement,
     reverse_complement,
     open_file,
     get_deletion_ref_pos,
+    KmerBlocks,
     NewRecord,
     RefineInfo,
     TempRecord,
@@ -40,11 +42,16 @@ pub fn run(
     hap2_list: &str,
     kmer_size: u32,
     threads: usize,
+    ratio_threshold: f64,
+    min_markers: usize,
 ) -> Result<(), Box<dyn stdError>> {
+    if !(0.0..=1.0).contains(&ratio_threshold) {
+        return Err(format!("--ratio-threshold must be within [0.0, 1.0], got {}", ratio_threshold).into());
+    }
     let hap1_set: Arc<HashSet<String>> = Arc::new(get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list)));
     let hap2_set: Arc<HashSet<String>> = Arc::new(get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list)));
     let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, &hap1_set, &hap2_set, kmer_size, threads);
-    let filtered_alignments = filter(&mut alignments, &hap1_set);
+    let filtered_alignments = filter(&mut alignments, &hap1_set, ratio_threshold, min_markers);
     write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, &hap1_set, &hap2_set, threads);
     Ok(())
 }
@@ -273,8 +280,9 @@ fn process_read_alignments(
         };
         let read_length = read_end - read_start;
 
-        // Reference start positions of matched haplotype-specific k-mers; merged
-        // into blocks at the end so one distinguishing base is counted once.
+        // Reference start positions of the haplotype-specific k-mers matched by
+        // the read; resolved into blocks at the end so one distinguishing base
+        // is counted once.
         let mut matched_starts: Vec<u32> = Vec::new();
 
         let delimiter: u8 = 9; // '\t' for ASCII code
@@ -372,8 +380,10 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        // Reference start positions of haplotype-specific k-mers in this region;
-        // merged into blocks below so a single locus is counted once.
+        // Every haplotype-specific k-mer of this region, used to define the
+        // blocks, plus the subset the read can actually observe (k-mers spanned
+        // by a deletion are unobservable and excluded from ref_kmer_cnt).
+        let mut region_starts: Vec<u32> = Vec::new();
         let mut ref_starts: Vec<u32> = Vec::new();
         //let read_id = String::from_utf8_lossy(record.qname()).to_string();
         let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
@@ -394,6 +404,7 @@ fn process_read_alignments(
                 let tmp_start: u32 = start.try_into().unwrap();
                 let tmp_end: u32 = end.try_into().unwrap();
                 tbx_sequences.insert(seq, (tmp_start, tmp_end));
+                region_starts.push(tmp_start);
                 let mut cnt_flag = true;
                 for del in del_ref_pos.iter() {
                     if del.1 >= tmp_start && del.0 < tmp_end {
@@ -405,7 +416,8 @@ fn process_read_alignments(
                 }
             }
         }
-        let ref_kmer_cnt = count_merged_blocks(&mut ref_starts);
+        let kmer_blocks = KmerBlocks::new(&region_starts, kmer_size);
+        let ref_kmer_cnt = kmer_blocks.count_hits(&ref_starts);
 
         if read_length < kmer_size {
             continue;
@@ -433,7 +445,7 @@ fn process_read_alignments(
                 }
             }
         }
-        let kmer_cnt = count_merged_blocks(&mut matched_starts);
+        let kmer_cnt = kmer_blocks.count_hits(&matched_starts);
 
          let info = RefineInfo {
             reference_name: reference_name.to_string(),
@@ -452,32 +464,104 @@ fn process_read_alignments(
     counted_alignments
 }
 
-fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>, hap1_set: &HashSet<String>) -> HashMap<String, Vec<NewRecord>> {
+/// Distance between two placements in read coordinates. The main loop below uses
+/// the same measure to decide which segment a secondary alignment belongs to.
+fn read_span_distance(a: &RefineInfo, b: &RefineInfo) -> isize {
+    (a.read_start as isize - b.read_start as isize).abs()
+        + (a.read_end as isize - b.read_end as isize).abs()
+}
+
+/// Prefer hap1 for read segments the markers cannot distinguish.
+///
+/// A segment is one stretch of the read: a non-secondary alignment (the primary
+/// or a supplementary) together with the secondary alignments competing for the
+/// same stretch. When *no* placement of a segment overlaps a single
+/// haplotype-specific k-mer of the reference (`ref_kmer_cnt == 0` throughout),
+/// the two haplotypes are identical there and the choice between them is
+/// arbitrary. Consolidating those reads on hap1 instead of splitting them keeps
+/// the reads supporting a somatic variant together, which is the point of the
+/// rule.
+///
+/// This generalises the previous check, which only fired for reads consisting of
+/// exactly one primary plus one secondary and so never applied to reads carrying
+/// a supplementary alignment (see doc/hap1_preference_limitation.md).
+///
+/// `ref_kmer_cnt == 0` is required rather than `kmer_cnt == 0`: a read that
+/// matches none of the markers a region *does* offer disagrees with both
+/// haplotypes, which is evidence of something else (a third allele, a somatic
+/// event, an assembly error) and no reason to move it to hap1.
+///
+/// Returns true when at least one segment was swapped.
+fn prefer_hap1_where_indistinguishable(
+    value: &mut Vec<RefineInfo>,
+    hap1_set: &HashSet<String>,
+) -> bool {
+    let anchors: Vec<usize> = (0..value.len())
+        .filter(|&i| value[i].is_secondary == 0)
+        .collect();
+    if anchors.is_empty() {
+        return false;
+    }
+
+    // Assign every secondary to the segment whose read span is closest, the same
+    // way the main loop pairs secondaries with the placement they compete with.
+    let mut members: Vec<Vec<usize>> = anchors.iter().map(|&a| vec![a]).collect();
+    for i in 0..value.len() {
+        if value[i].is_secondary == 0 {
+            continue;
+        }
+        let mut best = 0;
+        let mut best_dist = isize::MAX;
+        for (g, &a) in anchors.iter().enumerate() {
+            let d = read_span_distance(&value[a], &value[i]);
+            if d < best_dist {
+                best_dist = d;
+                best = g;
+            }
+        }
+        members[best].push(i);
+    }
+
+    let mut swapped = false;
+    for (g, group) in members.iter().enumerate() {
+        let anchor = anchors[g];
+        if group.len() < 2 {
+            continue;
+        }
+        if group.iter().any(|&i| value[i].ref_kmer_cnt != 0) {
+            continue;
+        }
+        if hap1_set.contains(&value[anchor].reference_name) {
+            continue;
+        }
+        // First hap1 placement in the (deterministically ordered) group.
+        if let Some(&pick) = group
+            .iter()
+            .find(|&&i| i != anchor && hap1_set.contains(&value[i].reference_name))
+        {
+            value[anchor].is_secondary = 1;
+            value[pick].is_secondary = 0;
+            value[pick].is_supplementary = value[anchor].is_supplementary;
+            value[anchor].is_supplementary = 0;
+            swapped = true;
+        }
+    }
+    swapped
+}
+
+fn filter(
+    alignments: &mut HashMap<String, Vec<RefineInfo>>,
+    hap1_set: &HashSet<String>,
+    ratio_threshold: f64,
+    min_markers: usize,
+) -> HashMap<String, Vec<NewRecord>> {
     let mut new_results: HashMap<String, Vec<NewRecord>> = HashMap::new();
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by_key(|info| info.is_secondary);
 
-        // Check for special case: 1 primary + 1 secondary, both with kmer_cnt == 0
-        if value.len() == 2 {
-            let primary_idx = value.iter().position(|info| info.is_secondary == 0);
-            let secondary_idx = value.iter().position(|info| info.is_secondary == 1);
-
-            if let (Some(prim_idx), Some(sec_idx)) = (primary_idx, secondary_idx) {
-                if value[prim_idx].kmer_cnt == 0 && value[sec_idx].kmer_cnt == 0 {
-                    let prim_in_hap1 = hap1_set.contains(&value[prim_idx].reference_name);
-                    let sec_in_hap1 = hap1_set.contains(&value[sec_idx].reference_name);
-
-                    // If secondary is in hap1 and primary is not, swap them
-                    if sec_in_hap1 && !prim_in_hap1 {
-                        // Swap primary and secondary flags
-                        value[prim_idx].is_secondary = 1;
-                        value[sec_idx].is_secondary = 0;
-                        // Re-sort after swapping
-                        value.sort_by_key(|info| info.is_secondary);
-                    }
-                }
-            }
+        if prefer_hap1_where_indistinguishable(value, hap1_set) {
+            value.sort_by_key(|info| info.is_secondary);
         }
 
         let mut prim_info = TempRecord::new();
@@ -667,6 +751,19 @@ fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>, hap1_set: &HashSet<
         }
         eprintln!("{}: {:?}", key, prim_kmer_cnts);
         eprintln!("{}: {:?}", key, supp_kmer_cnts);
+
+        // The winner of each segment is the placement with the highest count,
+        // already picked above. Whether that win is decisive can only be judged
+        // once every competitor is known, so the flag is (re)computed here from
+        // the collected counts instead of incrementally in the loop.
+        prim_info.flag = if is_confident_placement(&prim_kmer_cnts, ratio_threshold)
+            && has_enough_markers(prim_info.kmer_cnt, prim_info.ref_kmer_cnt, min_markers)
+        { 1 } else { 0 };
+        for (i, t_supp_info) in supp_info.iter_mut().enumerate() {
+            t_supp_info.flag = if is_confident_placement(&supp_kmer_cnts[i], ratio_threshold)
+                && has_enough_markers(t_supp_info.kmer_cnt, t_supp_info.ref_kmer_cnt, min_markers)
+            { 1 } else { 0 };
+        }
 
         let f_prim_info = NewRecord {
             reference_name: prim_info.reference_name.clone(),
