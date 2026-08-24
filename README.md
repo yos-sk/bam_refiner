@@ -221,18 +221,11 @@ supplementary counterpart of `PK`). Only unmapped and secondary records are skip
 matches how `refine` assigns the haplotype in the first place. A split read therefore gets
 one ratio covering all of its segments, not one per segment.
 
-The smoothing exists because `RK == 0` — a read spanning no haplotype-specific locus at
-all, which is 16 % of HiFi and 20 % of ONT reads — used to come out as a raw `0/0 = 1.0`,
-indistinguishable from a read that matched every marker available to it. Such a read now
-reports `prior_mean` instead, and reads with a small `RK` are pulled toward it in
-proportion, so `1/1` no longer claims as much as `1000/1000`.
-
 The recommended values are chosen against the downstream cutoff rather than derived from
 the data: PRCGAP retains reads at `Kmer_ratio >= 0.6`, and 0.6 (ONT) / 0.8 (HiFi) put a
 no-evidence read just on the retained side of it. The intent is to keep those reads
 available to variant calling instead of silently dropping them, while still ranking them
 below any read that carries actual marker evidence. Setting `--prior-mean` below 0.6
-discards them; `--prior-weight 0` turns the smoothing off entirely and restores the old
-`0/0 = 1.0`.
+discards them.
 
 If you want to use bam_refiner for the alignment data to the exisitng reference genome (e.g. GRCh38 or CHM13), plase try single_mode branch and see [document](https://github.com/yos-sk/bam_refiner/blob/master/document/single.md).
