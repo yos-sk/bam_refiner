@@ -9,15 +9,22 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as stdError;
 use std::io::BufRead;
+use std::sync::Arc;
+use std::thread;
+
+use crossbeam_channel::{bounded, unbounded};
 
 use bam_refiner::{
     convert_u82String,
     get_cigartuples,
     get_current_ref_pos,
     get_read_position,
+    has_enough_markers,
+    is_confident_placement,
     reverse_complement,
     open_file,
     get_deletion_ref_pos,
+    KmerBlocks,
     NewRecord,
     RefineInfo,
     TempRecord,
@@ -34,12 +41,18 @@ pub fn run(
     hap1_list: &str,
     hap2_list: &str,
     kmer_size: u32,
+    threads: usize,
+    ratio_threshold: f64,
+    min_markers: usize,
 ) -> Result<(), Box<dyn stdError>> {
-    let hap1_set: HashSet<String> = get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list));
-    let hap2_set: HashSet<String> = get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list));
-    let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, &hap1_set, &hap2_set, kmer_size);
-    let filtered_alignments = filter(&mut alignments, &hap1_set);
-    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, &hap1_set, &hap2_set);
+    if !(0.0..=1.0).contains(&ratio_threshold) {
+        return Err(format!("--ratio-threshold must be within [0.0, 1.0], got {}", ratio_threshold).into());
+    }
+    let hap1_set: Arc<HashSet<String>> = Arc::new(get_read_name_list(hap1_list).expect(&format!("Could not read {}", hap1_list)));
+    let hap2_set: Arc<HashSet<String>> = Arc::new(get_read_name_list(hap2_list).expect(&format!("Could not read {}", hap2_list)));
+    let mut alignments = cal_count_marker(input_bam, hap1_tabix, hap2_tabix, &hap1_set, &hap2_set, kmer_size, threads);
+    let filtered_alignments = filter(&mut alignments, &hap1_set, ratio_threshold, min_markers);
+    write_bam::process_write_bam(input_bam, output_bam, &filtered_alignments, &hap1_set, &hap2_set, threads);
     Ok(())
 }
 
@@ -57,28 +70,72 @@ fn cal_count_marker(
     bamfile: &str,
     hap1_tabix: &str,
     hap2_tabix: &str,
-    hap1_set: &HashSet<String>,
-    hap2_set: &HashSet<String>,
+    hap1_set: &Arc<HashSet<String>>,
+    hap2_set: &Arc<HashSet<String>>,
     kmer_size: u32,
+    threads: usize,
 ) -> HashMap<String, Vec<RefineInfo>> {
-    let mut hap1_tbx_reader =
-        tbx::Reader::from_path(hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
+    // Build the tid -> reference name map once (shared, read-only).
+    let headers: Arc<HashMap<u32, String>> = {
+        let bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+        let mut h: HashMap<u32, String> = HashMap::new();
+        for name in bam.header().target_names() {
+            let r_tid = bam.header().tid(name).unwrap();
+            h.insert(r_tid, convert_u82String(name));
+        }
+        Arc::new(h)
+    };
 
-    let mut hap2_tbx_reader =
-        tbx::Reader::from_path(hap2_tabix).expect(&format!("Could not open {}", hap2_tabix));
+    let n_workers = threads.max(1);
 
-    let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    // work channel: producer -> workers. Bounded to cap the number of heavy
+    // raw-record groups held in memory at once (backpressure).
+    let (work_tx, work_rx) = bounded::<Vec<bam::record::Record>>(n_workers * 2);
+    // result channel: workers -> collector. Carries only lightweight RefineInfo.
+    let (res_tx, res_rx) = unbounded::<(String, Vec<RefineInfo>)>();
 
-    let header = bam.header().target_names();
+    // Spawn the worker pool. Each worker owns its own tabix readers, since
+    // tbx::Reader holds mutable fetch state and cannot be shared across threads.
+    let mut handles = Vec::with_capacity(n_workers);
+    for _ in 0..n_workers {
+        let work_rx = work_rx.clone();
+        let res_tx = res_tx.clone();
+        let headers = Arc::clone(&headers);
+        let hap1_set = Arc::clone(hap1_set);
+        let hap2_set = Arc::clone(hap2_set);
+        let hap1_tabix = hap1_tabix.to_string();
+        let hap2_tabix = hap2_tabix.to_string();
+        let handle = thread::spawn(move || {
+            let mut hap1_tbx_reader =
+                tbx::Reader::from_path(&hap1_tabix).expect(&format!("Could not open {}", hap1_tabix));
+            let mut hap2_tbx_reader =
+                tbx::Reader::from_path(&hap2_tabix).expect(&format!("Could not open {}", hap2_tabix));
 
-    let mut headers: HashMap<u32, String> = HashMap::new();
-    for name in header {
-        let r_tid = bam.header().tid(name).unwrap();
-        let r_string = convert_u82String(name);
-        headers.insert(r_tid, r_string);
+            for read_alignments in work_rx.iter() {
+                let read_id = convert_u82String(read_alignments[0].qname());
+                let t_alignments = process_read_alignments(
+                    &read_alignments,
+                    &headers,
+                    &mut hap1_tbx_reader,
+                    &mut hap2_tbx_reader,
+                    &hap1_set,
+                    &hap2_set,
+                    kmer_size,
+                );
+                res_tx.send((read_id, t_alignments)).expect("result channel closed");
+            }
+        });
+        handles.push(handle);
     }
+    // Drop the main thread's extra handles so the channels close once the
+    // producer/workers are done.
+    drop(work_rx);
+    drop(res_tx);
 
-    let mut alignments: HashMap<String, Vec<RefineInfo>,> = HashMap::new();
+    // Producer: stream the (name-sorted) BAM in this thread and dispatch one
+    // group of records per read. Only this thread touches the BAM reader.
+    let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    bam.set_threads(n_workers).expect(&format!("Failure set {} threads", n_workers));
 
     let mut read_alignments: Vec<bam::record::Record> = Vec::new();
     let mut prev_read_id = String::new();
@@ -100,33 +157,31 @@ fn cal_count_marker(
         }
 
         if read_id != prev_read_id {
-            let t_alignments = process_read_alignments(
-                &read_alignments,
-                &headers,
-                &mut hap1_tbx_reader,
-                &mut hap2_tbx_reader,
-                hap1_set,
-                hap2_set,
-                kmer_size,
-            );
-            alignments.insert(prev_read_id, t_alignments);
-            read_alignments = Vec::new();
+            work_tx
+                .send(std::mem::take(&mut read_alignments))
+                .expect("work channel closed");
             read_alignments.push(record);
             prev_read_id = read_id;
         } else {
             read_alignments.push(record);
         }
     }
-    let t_alignments = process_read_alignments(
-        &read_alignments,
-        &headers,
-        &mut hap1_tbx_reader,
-        &mut hap2_tbx_reader,
-        hap1_set,
-        hap2_set,
-        kmer_size,
-    );
-    alignments.insert(prev_read_id, t_alignments);
+    if !read_alignments.is_empty() {
+        work_tx.send(read_alignments).expect("work channel closed");
+    }
+    // Closing the work channel lets the workers finish and drop their result
+    // senders, which in turn ends the collection loop below.
+    drop(work_tx);
+
+    // Collector: drain results into the map. The result channel is unbounded,
+    // so workers never block on send and cannot deadlock against the producer.
+    let mut alignments: HashMap<String, Vec<RefineInfo>> = HashMap::new();
+    for (read_id, t_alignments) in res_rx.iter() {
+        alignments.insert(read_id, t_alignments);
+    }
+    for handle in handles {
+        handle.join().expect("worker thread panicked");
+    }
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by(|t1, t2| {
@@ -225,7 +280,10 @@ fn process_read_alignments(
         };
         let read_length = read_end - read_start;
 
-        let mut kmer_cnt: usize = 0;
+        // Reference start positions of the haplotype-specific k-mers matched by
+        // the read; resolved into blocks at the end so one distinguishing base
+        // is counted once.
+        let mut matched_starts: Vec<u32> = Vec::new();
 
         let delimiter: u8 = 9; // '\t' for ASCII code
         let mut tbx_reader = &mut *hap1_tbx_reader;
@@ -322,7 +380,11 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        let mut ref_kmer_cnt: usize = 0;
+        // Every haplotype-specific k-mer of this region, used to define the
+        // blocks, plus the subset the read can actually observe (k-mers spanned
+        // by a deletion are unobservable and excluded from ref_kmer_cnt).
+        let mut region_starts: Vec<u32> = Vec::new();
+        let mut ref_starts: Vec<u32> = Vec::new();
         //let read_id = String::from_utf8_lossy(record.qname()).to_string();
         let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
         for tbx_record in tbx_reader.records() {
@@ -342,6 +404,7 @@ fn process_read_alignments(
                 let tmp_start: u32 = start.try_into().unwrap();
                 let tmp_end: u32 = end.try_into().unwrap();
                 tbx_sequences.insert(seq, (tmp_start, tmp_end));
+                region_starts.push(tmp_start);
                 let mut cnt_flag = true;
                 for del in del_ref_pos.iter() {
                     if del.1 >= tmp_start && del.0 < tmp_end {
@@ -349,10 +412,12 @@ fn process_read_alignments(
                     }
                 }
                 if cnt_flag {
-                    ref_kmer_cnt += 1;
+                    ref_starts.push(tmp_start);
                 }
             }
         }
+        let kmer_blocks = KmerBlocks::new(&region_starts, kmer_size);
+        let ref_kmer_cnt = kmer_blocks.count_hits(&ref_starts);
 
         if read_length < kmer_size {
             continue;
@@ -376,10 +441,11 @@ fn process_read_alignments(
                     read_strand.to_string(),
                 ) == *value
                 {
-                    kmer_cnt += 1;
+                    matched_starts.push(value.0);
                 }
             }
         }
+        let kmer_cnt = kmer_blocks.count_hits(&matched_starts);
 
          let info = RefineInfo {
             reference_name: reference_name.to_string(),
@@ -398,32 +464,104 @@ fn process_read_alignments(
     counted_alignments
 }
 
-fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>, hap1_set: &HashSet<String>) -> HashMap<String, Vec<NewRecord>> {
+/// Distance between two placements in read coordinates. The main loop below uses
+/// the same measure to decide which segment a secondary alignment belongs to.
+fn read_span_distance(a: &RefineInfo, b: &RefineInfo) -> isize {
+    (a.read_start as isize - b.read_start as isize).abs()
+        + (a.read_end as isize - b.read_end as isize).abs()
+}
+
+/// Prefer hap1 for read segments the markers cannot distinguish.
+///
+/// A segment is one stretch of the read: a non-secondary alignment (the primary
+/// or a supplementary) together with the secondary alignments competing for the
+/// same stretch. When *no* placement of a segment overlaps a single
+/// haplotype-specific k-mer of the reference (`ref_kmer_cnt == 0` throughout),
+/// the two haplotypes are identical there and the choice between them is
+/// arbitrary. Consolidating those reads on hap1 instead of splitting them keeps
+/// the reads supporting a somatic variant together, which is the point of the
+/// rule.
+///
+/// This generalises the previous check, which only fired for reads consisting of
+/// exactly one primary plus one secondary and so never applied to reads carrying
+/// a supplementary alignment (see doc/hap1_preference_limitation.md).
+///
+/// `ref_kmer_cnt == 0` is required rather than `kmer_cnt == 0`: a read that
+/// matches none of the markers a region *does* offer disagrees with both
+/// haplotypes, which is evidence of something else (a third allele, a somatic
+/// event, an assembly error) and no reason to move it to hap1.
+///
+/// Returns true when at least one segment was swapped.
+fn prefer_hap1_where_indistinguishable(
+    value: &mut Vec<RefineInfo>,
+    hap1_set: &HashSet<String>,
+) -> bool {
+    let anchors: Vec<usize> = (0..value.len())
+        .filter(|&i| value[i].is_secondary == 0)
+        .collect();
+    if anchors.is_empty() {
+        return false;
+    }
+
+    // Assign every secondary to the segment whose read span is closest, the same
+    // way the main loop pairs secondaries with the placement they compete with.
+    let mut members: Vec<Vec<usize>> = anchors.iter().map(|&a| vec![a]).collect();
+    for i in 0..value.len() {
+        if value[i].is_secondary == 0 {
+            continue;
+        }
+        let mut best = 0;
+        let mut best_dist = isize::MAX;
+        for (g, &a) in anchors.iter().enumerate() {
+            let d = read_span_distance(&value[a], &value[i]);
+            if d < best_dist {
+                best_dist = d;
+                best = g;
+            }
+        }
+        members[best].push(i);
+    }
+
+    let mut swapped = false;
+    for (g, group) in members.iter().enumerate() {
+        let anchor = anchors[g];
+        if group.len() < 2 {
+            continue;
+        }
+        if group.iter().any(|&i| value[i].ref_kmer_cnt != 0) {
+            continue;
+        }
+        if hap1_set.contains(&value[anchor].reference_name) {
+            continue;
+        }
+        // First hap1 placement in the (deterministically ordered) group.
+        if let Some(&pick) = group
+            .iter()
+            .find(|&&i| i != anchor && hap1_set.contains(&value[i].reference_name))
+        {
+            value[anchor].is_secondary = 1;
+            value[pick].is_secondary = 0;
+            value[pick].is_supplementary = value[anchor].is_supplementary;
+            value[anchor].is_supplementary = 0;
+            swapped = true;
+        }
+    }
+    swapped
+}
+
+fn filter(
+    alignments: &mut HashMap<String, Vec<RefineInfo>>,
+    hap1_set: &HashSet<String>,
+    ratio_threshold: f64,
+    min_markers: usize,
+) -> HashMap<String, Vec<NewRecord>> {
     let mut new_results: HashMap<String, Vec<NewRecord>> = HashMap::new();
 
     for (key, value) in alignments.iter_mut() {
         value.sort_by_key(|info| info.is_secondary);
 
-        // Check for special case: 1 primary + 1 secondary, both with kmer_cnt == 0
-        if value.len() == 2 {
-            let primary_idx = value.iter().position(|info| info.is_secondary == 0);
-            let secondary_idx = value.iter().position(|info| info.is_secondary == 1);
-
-            if let (Some(prim_idx), Some(sec_idx)) = (primary_idx, secondary_idx) {
-                if value[prim_idx].kmer_cnt == 0 && value[sec_idx].kmer_cnt == 0 {
-                    let prim_in_hap1 = hap1_set.contains(&value[prim_idx].reference_name);
-                    let sec_in_hap1 = hap1_set.contains(&value[sec_idx].reference_name);
-
-                    // If secondary is in hap1 and primary is not, swap them
-                    if sec_in_hap1 && !prim_in_hap1 {
-                        // Swap primary and secondary flags
-                        value[prim_idx].is_secondary = 1;
-                        value[sec_idx].is_secondary = 0;
-                        // Re-sort after swapping
-                        value.sort_by_key(|info| info.is_secondary);
-                    }
-                }
-            }
+        if prefer_hap1_where_indistinguishable(value, hap1_set) {
+            value.sort_by_key(|info| info.is_secondary);
         }
 
         let mut prim_info = TempRecord::new();
@@ -613,6 +751,19 @@ fn filter(alignments: &mut HashMap<String, Vec<RefineInfo>>, hap1_set: &HashSet<
         }
         eprintln!("{}: {:?}", key, prim_kmer_cnts);
         eprintln!("{}: {:?}", key, supp_kmer_cnts);
+
+        // The winner of each segment is the placement with the highest count,
+        // already picked above. Whether that win is decisive can only be judged
+        // once every competitor is known, so the flag is (re)computed here from
+        // the collected counts instead of incrementally in the loop.
+        prim_info.flag = if is_confident_placement(&prim_kmer_cnts, ratio_threshold)
+            && has_enough_markers(prim_info.kmer_cnt, prim_info.ref_kmer_cnt, min_markers)
+        { 1 } else { 0 };
+        for (i, t_supp_info) in supp_info.iter_mut().enumerate() {
+            t_supp_info.flag = if is_confident_placement(&supp_kmer_cnts[i], ratio_threshold)
+                && has_enough_markers(t_supp_info.kmer_cnt, t_supp_info.ref_kmer_cnt, min_markers)
+            { 1 } else { 0 };
+        }
 
         let f_prim_info = NewRecord {
             reference_name: prim_info.reference_name.clone(),

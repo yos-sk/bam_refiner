@@ -17,11 +17,14 @@ pub fn process_write_bam(
     filtered_alignments: &HashMap<String, Vec<NewRecord>>,
     hap1_set: &HashSet<String>,
     hap2_set: &HashSet<String>,
+    threads: usize,
 ) {
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
+    bam.set_threads(threads.max(1)).expect(&format!("Failure set {} threads", threads));
     let header = bam::Header::from_template(bam.header());
     let mut out = bam::Writer::from_path(output_bam, &header, bam::Format::Bam)
         .expect(&format!("Could not open {}", output_bam));
+    out.set_threads(threads.max(1)).expect(&format!("Failure set {} threads", threads));
 
     let mut headers: HashMap<u32, String> = HashMap::new();
     for name in bam.header().target_names() {
@@ -202,7 +205,9 @@ fn write_bam(
             }
             // mapping quality
             if i.flag == 0 {
-                let mapq: u8 = 60 / i.kmers_list.len() as u8;
+                // Divide in usize: casting the length to u8 first wraps at 256
+                // placements (0 -> division by zero, 257 -> a full-confidence 60).
+                let mapq: u8 = (60 / i.kmers_list.len().max(1)) as u8;
                 record.set_mapq(mapq);
             } else {
                 let mapq: u8 = 60;
