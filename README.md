@@ -130,7 +130,8 @@ rather than splitting the BAM into per-job pieces beforehand.
     --hap2-tabix hap2_cnt_kmerposition.bed.gz \
     --kmer-size 21 \
     --threads 8 \
-    --ratio-threshold 0.5 \
+    --ratio-threshold 0.8 \
+    --min-markers 3 \
     1>output.tsv 2>log
 ```
 
@@ -151,11 +152,22 @@ count wins, provided it holds enough of the evidence:
 max_kmer / (max_kmer + second_max_kmer) >= ratio_threshold
 ```
 
-`--ratio-threshold` defaults to `0.5`, which only requires the winner to beat the
-runner-up. Raising it leaves marginal reads unphased (`HP:i:0`) instead of assigning them.
-`0.8` is a good starting point: on a 13.4 M-read HiFi sample it makes only 0.14 % of reads
-unphased, and what it removes is almost entirely calls where the winner carries fewer than
-ten markers and the rival carries markers too.
+`--ratio-threshold` defaults to `0.8`: on a 13.4 M-read HiFi sample that leaves only
+0.14 % of reads unphased (`HP:i:0`), and what it removes is almost entirely calls where the
+winner carries fewer than ten markers and the rival carries markers too. Lowering it to
+`0.5` restores the pre-0.4.0 behaviour, where the winner only had to beat the runner-up.
+
+A high ratio is not enough on its own, because a placement can win a lopsided vote on very
+little evidence. `--min-markers` therefore also requires:
+
+```
+kmer_cnt >= min_markers  ||  kmer_cnt >= ref_kmer_cnt
+```
+
+The second clause is what keeps the floor honest: a read spanning a marker-poor region
+cannot reach the count, but if it matched every haplotype-specific locus that region had to
+offer, there is nothing more to ask of it. `--min-markers` defaults to `3`; `1` disables the
+rule.
 
 #### Step 4: Sort refined bam file　
 ```

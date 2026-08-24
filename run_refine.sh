@@ -48,13 +48,13 @@ if [ -z "${OPTION_SPLIT:-}" ]; then
 fi
 
 if [ -z "${RATIO_THRESHOLD:-}" ]; then
-    echo "Ratio threshold is not given. Ratio threshold is set to default (0.5)"
-    RATIO_THRESHOLD=0.5
+    echo "Ratio threshold is not given. Ratio threshold is set to default (0.8)"
+    RATIO_THRESHOLD=0.8
 fi
 
 if [ -z "${MIN_MARKERS:-}" ]; then
-    echo "Minimum marker count is not given. It is set to default (1 = disabled)"
-    MIN_MARKERS=1
+    echo "Minimum marker count is not given. It is set to default (3)"
+    MIN_MARKERS=3
 fi
 
 if [ -z "${SAMPLE:-}" ]; then

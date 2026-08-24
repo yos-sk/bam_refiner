@@ -71,14 +71,14 @@ enum Commands {
 
         /// Adopt the best placement only if
         /// max_kmer / (max_kmer + second_max_kmer) >= this value.
-        /// 0.5 keeps the previous behaviour (any margin wins).
-        #[clap(short = 'r', long, value_parser, default_value_t = 0.5)]
+        /// 0.5 restores the pre-0.4.0 behaviour (any margin wins).
+        #[clap(short = 'r', long, value_parser, default_value_t = 0.8)]
         ratio_threshold: f64,
 
         /// Leave a placement undetermined when it matched fewer than this many
         /// haplotype-specific loci AND left some of the loci available to it
         /// unmatched. 1 disables the rule.
-        #[clap(short = 'n', long, value_parser, default_value_t = 1)]
+        #[clap(short = 'n', long, value_parser, default_value_t = 3)]
         min_markers: usize,
     },
 
@@ -100,14 +100,14 @@ enum Commands {
 
         /// Adopt the best placement only if
         /// max_kmer / (max_kmer + second_max_kmer) >= this value.
-        /// 0.5 keeps the previous behaviour (any margin wins).
-        #[clap(short = 'r', long, value_parser, default_value_t = 0.5)]
+        /// 0.5 restores the pre-0.4.0 behaviour (any margin wins).
+        #[clap(short = 'r', long, value_parser, default_value_t = 0.8)]
         ratio_threshold: f64,
 
         /// Leave a placement undetermined when it matched fewer than this many
         /// haplotype-specific loci AND left some of the loci available to it
         /// unmatched. 1 disables the rule.
-        #[clap(short = 'n', long, value_parser, default_value_t = 1)]
+        #[clap(short = 'n', long, value_parser, default_value_t = 3)]
         min_markers: usize,
     },
 }
