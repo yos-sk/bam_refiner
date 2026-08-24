@@ -167,6 +167,16 @@ cannot reach the count, but if it matched every haplotype-specific locus that re
 offer, there is nothing more to ask of it. `--min-markers` defaults to `3`; `1` disables the
 rule.
 
+Note how the two nest — the marker floor is an alternative, the two gates are not:
+
+```
+haplotype is called  <=>  max_kmer / (max_kmer + second_max_kmer) >= ratio_threshold
+                          AND ( kmer_cnt >= min_markers OR kmer_cnt >= ref_kmer_cnt )
+```
+
+A placement failing either gate is left undetermined (`HP:i:0`), as is any tie between
+placements.
+
 #### Step 4: Sort refined bam file　
 ```
 samtools sort \
