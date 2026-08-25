@@ -259,22 +259,13 @@ pub fn get_current_ref_pos(
     (out_start, out_end)
 }
 
-/// Groups of "effectively the same" haplotype-specific k-mers, built from the
-/// reference k-mers of one region.
+/// The haplotype-specific k-mers of one region, grouped into blocks so that one
+/// distinguishing base counts once instead of up to k times.
 ///
-/// A single distinguishing base makes up to k k-mers haplotype-specific, at
-/// consecutive reference start positions (gap == 1). They all report the same
-/// locus, so they belong to one block: a read matching any of them adds 1 to
-/// the count instead of up to k, which removes the over-counting bias. Two
-/// rules cut a block:
-///
-/// - a gap > 1, i.e. a non-specific start position breaks the run;
-/// - a length of `kmer_size` k-mers, since a run longer than that cannot come
-///   from a single distinguishing base and must span more than one locus.
-///
-/// Blocks are defined on the reference k-mer set, not on the k-mers a read
-/// happens to match, so a read that hits only part of a run still scores 1 for
-/// that locus and the count stays comparable between competing placements.
+/// A block is a run of consecutive reference start positions, cut by a gap > 1
+/// or after `kmer_size` k-mers (a longer run must span more than one locus).
+/// Blocks come from the reference k-mer set, not from what a read matched, so
+/// counts stay comparable between competing placements.
 pub struct KmerBlocks {
     ids: HashMap<u32, usize>,
 }
@@ -321,40 +312,16 @@ impl KmerBlocks {
     }
 }
 
-/// Decide whether the best placement of a read segment is supported strongly
-/// enough to be adopted. `counts` holds the haplotype-specific k-mer counts of
-/// every placement competing for the same stretch of the read. The best count
-/// must beat the runner-up and hold at least `threshold` of the evidence the
-/// two of them share:
-///
-/// ```text
-/// max / (max + second_max) >= threshold
-/// ```
-///
-/// A threshold of 0.5 therefore only requires a strict majority, i.e. any
-/// margin at all; raising it demands a clearer separation before the read is
-/// called for one haplotype. When no placement carries a marker (max == 0) the
-/// segment is always left undetermined.
-/// Decide whether a winning placement rests on enough marker evidence.
-///
-/// A bare `kmer_cnt >= min_markers` floor is the wrong shape: most reads with
-/// only one or two markers are not weakly supported, they simply sit where the
-/// two haplotypes differ at only one or two loci — on BL2009 HiFi, 88-91% of
-/// them matched *every* marker their region offered, and their rival matched
-/// none. What warrants suspicion is a read that matched few markers **while
-/// more were on offer**, which on ONT is half of the one-marker reads. So the
-/// floor only applies while the read is also leaving markers unmatched:
-///
-/// ```text
-/// enough  <=>  kmer_cnt >= min_markers  ||  kmer_cnt >= ref_kmer_cnt
-/// ```
-///
-/// `min_markers == 1` disables the rule, since `kmer_cnt == 0` is already
-/// undetermined.
+/// Whether a winning placement carries enough markers: `min_markers` of them,
+/// or every marker its region offered (`kmer_cnt` never exceeds
+/// `ref_kmer_cnt`). `min_markers == 1` disables the rule.
 pub fn has_enough_markers(kmer_cnt: usize, ref_kmer_cnt: usize, min_markers: usize) -> bool {
-    kmer_cnt >= min_markers || kmer_cnt >= ref_kmer_cnt
+    kmer_cnt >= min_markers || kmer_cnt == ref_kmer_cnt
 }
 
+/// Whether the best of the placements competing for the same stretch of a read
+/// wins clearly enough: `max / (max + second_max) >= threshold`. A tie, or no
+/// marker at all, leaves the segment undetermined.
 pub fn is_confident_placement(counts: &[usize], threshold: f64) -> bool {
     let mut max: usize = 0;
     let mut second: usize = 0;

@@ -159,7 +159,7 @@ A high ratio is not enough on its own, because a placement can win a lopsided vo
 little evidence. `--min-markers` therefore also requires:
 
 ```
-kmer_cnt >= min_markers  ||  kmer_cnt >= ref_kmer_cnt
+kmer_cnt >= min_markers  ||  kmer_cnt == ref_kmer_cnt
 ```
 
 The second clause is what keeps the floor honest: a read spanning a marker-poor region
@@ -171,7 +171,7 @@ Note how the two nest — the marker floor is an alternative, the two gates are 
 
 ```
 haplotype is called  <=>  max_kmer / (max_kmer + second_max_kmer) >= ratio_threshold
-                          AND ( kmer_cnt >= min_markers OR kmer_cnt >= ref_kmer_cnt )
+                          AND ( kmer_cnt >= min_markers OR kmer_cnt == ref_kmer_cnt )
 ```
 
 A placement failing either gate is left undetermined (`HP:i:0`), as is any tie between
