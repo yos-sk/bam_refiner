@@ -88,8 +88,7 @@ fn cal_count_marker(
 
     let n_workers = threads.max(1);
 
-    // work channel: producer -> workers. Bounded to cap the number of heavy
-    // raw-record groups held in memory at once (backpressure).
+    // work channel: producer -> workers. Bounded for backpressure.
     let (work_tx, work_rx) = bounded::<Vec<bam::record::Record>>(n_workers * 2);
     // result channel: workers -> collector. Carries only lightweight RefineInfo.
     let (res_tx, res_rx) = unbounded::<(String, Vec<RefineInfo>)>();
@@ -127,13 +126,12 @@ fn cal_count_marker(
         });
         handles.push(handle);
     }
-    // Drop the main thread's extra handles so the channels close once the
-    // producer/workers are done.
+    // Drop the extra handles so the channels close when the senders are done.
     drop(work_rx);
     drop(res_tx);
 
-    // Producer: stream the (name-sorted) BAM in this thread and dispatch one
-    // group of records per read. Only this thread touches the BAM reader.
+    // Producer: stream the name-sorted BAM here — only this thread touches the
+    // reader — and dispatch one group of records per read.
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
     bam.set_threads(n_workers).expect(&format!("Failure set {} threads", n_workers));
 
@@ -169,12 +167,11 @@ fn cal_count_marker(
     if !read_alignments.is_empty() {
         work_tx.send(read_alignments).expect("work channel closed");
     }
-    // Closing the work channel lets the workers finish and drop their result
-    // senders, which in turn ends the collection loop below.
+    // Closing the work channel ends the workers, and with them the loop below.
     drop(work_tx);
 
-    // Collector: drain results into the map. The result channel is unbounded,
-    // so workers never block on send and cannot deadlock against the producer.
+    // Collector: drain results into the map. The channel is unbounded, so
+    // workers cannot deadlock against the producer.
     let mut alignments: HashMap<String, Vec<RefineInfo>> = HashMap::new();
     for (read_id, t_alignments) in res_rx.iter() {
         alignments.insert(read_id, t_alignments);
@@ -280,9 +277,8 @@ fn process_read_alignments(
         };
         let read_length = read_end - read_start;
 
-        // Reference start positions of the haplotype-specific k-mers matched by
-        // the read; resolved into blocks at the end so one distinguishing base
-        // is counted once.
+        // Reference start positions matched by the read, resolved into blocks
+        // at the end.
         let mut matched_starts: Vec<u32> = Vec::new();
 
         let delimiter: u8 = 9; // '\t' for ASCII code
@@ -380,9 +376,9 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        // Every haplotype-specific k-mer of this region, used to define the
-        // blocks, plus the subset the read can actually observe (k-mers spanned
-        // by a deletion are unobservable and excluded from ref_kmer_cnt).
+        // Every haplotype-specific k-mer of this region (defines the blocks),
+        // plus the subset the read can observe: a k-mer spanned by a deletion is
+        // unobservable and left out of ref_kmer_cnt.
         let mut region_starts: Vec<u32> = Vec::new();
         let mut ref_starts: Vec<u32> = Vec::new();
         //let read_id = String::from_utf8_lossy(record.qname()).to_string();
@@ -471,25 +467,12 @@ fn read_span_distance(a: &RefineInfo, b: &RefineInfo) -> isize {
         + (a.read_end as isize - b.read_end as isize).abs()
 }
 
-/// Prefer hap1 for read segments the markers cannot distinguish.
-///
-/// A segment is one stretch of the read: a non-secondary alignment (the primary
-/// or a supplementary) together with the secondary alignments competing for the
-/// same stretch. When *no* placement of a segment overlaps a single
-/// haplotype-specific k-mer of the reference (`ref_kmer_cnt == 0` throughout),
-/// the two haplotypes are identical there and the choice between them is
-/// arbitrary. Consolidating those reads on hap1 instead of splitting them keeps
-/// the reads supporting a somatic variant together, which is the point of the
-/// rule.
-///
-/// This generalises the previous check, which only fired for reads consisting of
-/// exactly one primary plus one secondary and so never applied to reads carrying
-/// a supplementary alignment (see doc/hap1_preference_limitation.md).
-///
-/// `ref_kmer_cnt == 0` is required rather than `kmer_cnt == 0`: a read that
-/// matches none of the markers a region *does* offer disagrees with both
-/// haplotypes, which is evidence of something else (a third allele, a somatic
-/// event, an assembly error) and no reason to move it to hap1.
+/// Move a segment (a non-secondary alignment plus the secondaries competing for
+/// the same stretch of read) to hap1 when no placement of it overlaps any
+/// haplotype-specific k-mer: the haplotypes are identical there, and keeping
+/// such reads together preserves the support for a somatic variant. The test is
+/// `ref_kmer_cnt == 0`, not `kmer_cnt == 0` — a read that misses markers a
+/// region does offer disagrees with both haplotypes.
 ///
 /// Returns true when at least one segment was swapped.
 fn prefer_hap1_where_indistinguishable(
@@ -503,8 +486,8 @@ fn prefer_hap1_where_indistinguishable(
         return false;
     }
 
-    // Assign every secondary to the segment whose read span is closest, the same
-    // way the main loop pairs secondaries with the placement they compete with.
+    // Assign every secondary to the segment whose read span is closest, as the
+    // main loop does.
     let mut members: Vec<Vec<usize>> = anchors.iter().map(|&a| vec![a]).collect();
     for i in 0..value.len() {
         if value[i].is_secondary == 0 {
@@ -752,10 +735,8 @@ fn filter(
         eprintln!("{}: {:?}", key, prim_kmer_cnts);
         eprintln!("{}: {:?}", key, supp_kmer_cnts);
 
-        // The winner of each segment is the placement with the highest count,
-        // already picked above. Whether that win is decisive can only be judged
-        // once every competitor is known, so the flag is (re)computed here from
-        // the collected counts instead of incrementally in the loop.
+        // The winner was picked above, but whether the win is decisive needs
+        // every competitor's count, so the flag is computed here.
         prim_info.flag = if is_confident_placement(&prim_kmer_cnts, ratio_threshold)
             && has_enough_markers(prim_info.kmer_cnt, prim_info.ref_kmer_cnt, min_markers)
         { 1 } else { 0 };

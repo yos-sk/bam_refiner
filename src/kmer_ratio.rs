@@ -47,17 +47,9 @@ pub fn run(
     
     }
 
-    // Smoothed fraction of the haplotype-specific loci a read could observe that
-    // it actually matched:
-    //
-    //     (matched + prior_mean * prior_weight) / (available + prior_weight)
-    //
-    // The raw quotient is undefined when a read spans no distinguishing locus at
-    // all (available == 0, which is 16% of HiFi and 20% of ONT reads) and it was
-    // reported as 1.0 — the same value a read matching every marker gets, so
-    // "no evidence" was indistinguishable from "perfect agreement". Here that
-    // case falls back to prior_mean, and the same prior pulls small denominators
-    // toward it, so 1/1 no longer claims as much as 1000/1000.
+    // Fraction of the loci a read could observe that it matched, smoothed by the
+    // prior so that available == 0 falls back to prior_mean instead of 1.0 and
+    // 1/1 claims less than 1000/1000.
     for (key, value) in kmers.iter() {
         let freq: f64 =
             (value[1] as f64 + prior_mean * prior_weight) / (value[0] as f64 + prior_weight);

@@ -67,8 +67,7 @@ fn cal_count_marker(
 
     let n_workers = threads.max(1);
 
-    // work channel: producer -> workers. Bounded to cap the number of heavy
-    // raw-record groups held in memory at once (backpressure).
+    // work channel: producer -> workers. Bounded for backpressure.
     let (work_tx, work_rx) = bounded::<Vec<bam::record::Record>>(n_workers * 2);
     // result channel: workers -> collector. Carries only lightweight RefineInfo.
     let (res_tx, res_rx) = unbounded::<(String, Vec<RefineInfo>)>();
@@ -98,13 +97,12 @@ fn cal_count_marker(
         });
         handles.push(handle);
     }
-    // Drop the main thread's extra handles so the channels close once the
-    // producer/workers are done.
+    // Drop the extra handles so the channels close when the senders are done.
     drop(work_rx);
     drop(res_tx);
 
-    // Producer: stream the (name-sorted) BAM in this thread and dispatch one
-    // group of records per read. Only this thread touches the BAM reader.
+    // Producer: stream the name-sorted BAM here — only this thread touches the
+    // reader — and dispatch one group of records per read.
     let mut bam = bam::Reader::from_path(bamfile).expect(&format!("Could not open {}", bamfile));
     bam.set_threads(n_workers).expect(&format!("Failure set {} threads", n_workers));
 
@@ -140,12 +138,11 @@ fn cal_count_marker(
     if !read_alignments.is_empty() {
         work_tx.send(read_alignments).expect("work channel closed");
     }
-    // Closing the work channel lets the workers finish and drop their result
-    // senders, which in turn ends the collection loop below.
+    // Closing the work channel ends the workers, and with them the loop below.
     drop(work_tx);
 
-    // Collector: drain results into the map. The result channel is unbounded,
-    // so workers never block on send and cannot deadlock against the producer.
+    // Collector: drain results into the map. The channel is unbounded, so
+    // workers cannot deadlock against the producer.
     let mut alignments: HashMap<String, Vec<RefineInfo>> = HashMap::new();
     for (read_id, t_alignments) in res_rx.iter() {
         alignments.insert(read_id, t_alignments);
@@ -246,9 +243,8 @@ fn process_read_alignments(
             r_read_length - read_start
         };
         let read_length = read_end - read_start;
-        // Reference start positions of the haplotype-specific k-mers matched by
-        // the read; resolved into blocks at the end so one distinguishing base
-        // is counted once.
+        // Reference start positions matched by the read, resolved into blocks
+        // at the end.
         let mut matched_starts: Vec<u32> = Vec::new();
 
         let delimiter: u8 = 9; // '\t' for ASCII code
@@ -296,9 +292,9 @@ fn process_read_alignments(
         }
 
         let mut tbx_sequences: HashMap<String, (u32, u32)> = HashMap::new();
-        // Every haplotype-specific k-mer of this region, used to define the
-        // blocks, plus the subset the read can actually observe (k-mers spanned
-        // by a deletion are unobservable and excluded from ref_kmer_cnt).
+        // Every haplotype-specific k-mer of this region (defines the blocks),
+        // plus the subset the read can observe: a k-mer spanned by a deletion is
+        // unobservable and left out of ref_kmer_cnt.
         let mut region_starts: Vec<u32> = Vec::new();
         let mut ref_starts: Vec<u32> = Vec::new();
         let del_ref_pos = get_deletion_ref_pos(&cigartuples, ref_start);
@@ -577,10 +573,8 @@ fn filter(
         eprintln!("Primary kmer cnts\t{}: {:?}", key, prim_kmer_cnts);
         eprintln!("Supplemntary kmer cnts\t{}: {:?}", key, supp_kmer_cnts);
 
-        // The winner of each segment is the placement with the highest count,
-        // already picked above. Whether that win is decisive can only be judged
-        // once every competitor is known, so the flag is (re)computed here from
-        // the collected counts instead of incrementally in the loop.
+        // The winner was picked above, but whether the win is decisive needs
+        // every competitor's count, so the flag is computed here.
         prim_info.flag = if is_confident_placement(&prim_kmer_cnts, ratio_threshold)
             && has_enough_markers(prim_info.kmer_cnt, prim_info.ref_kmer_cnt, min_markers)
         { 1 } else { 0 };
