@@ -13,6 +13,7 @@ use std::thread;
 use crossbeam_channel::{bounded, unbounded};
 
 use bam_refiner::{
+    aux_integer,
     convert_u82String,
     get_cigartuples,
     get_current_ref_pos,
@@ -262,6 +263,7 @@ fn process_read_alignments(
                     is_supplementary: is_supp,
                     kmer_cnt: 0,
                     ref_kmer_cnt: 0,
+                    alignment_score: aux_integer(record, b"AS"),
                 };
                 counted_alignments.push(info);
                 continue;
@@ -285,6 +287,7 @@ fn process_read_alignments(
                     is_supplementary: is_supp,
                     kmer_cnt: 0,
                     ref_kmer_cnt: 0,
+                    alignment_score: aux_integer(record, b"AS"),
                 };
                 counted_alignments.push(info);
                 continue;
@@ -369,6 +372,7 @@ fn process_read_alignments(
             is_supplementary: is_supp,
             kmer_cnt: kmer_cnt,
             ref_kmer_cnt: ref_kmer_cnt,
+            alignment_score: aux_integer(record, b"AS"),
         };
         counted_alignments.push(info);
     }
