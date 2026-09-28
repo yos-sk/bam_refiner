@@ -188,6 +188,10 @@ non-hap1 placement is kept instead when `AS(current) - AS(best hap1) >= as_margi
 this keeps a real sequence difference on its own haplotype and moves only identical
 sequence. Records without an `AS` tag are moved.
 
+This applies only to unsplit reads. A split read (more than one primary/supplementary
+record) is left where minimap2 placed it: moving one marker-free segment to hap1 while the
+others stay on hap2 splits the read across contigs and hides the SV breakpoint it spans.
+
 #### Step 4: Sort refined bam file　
 ```
 samtools sort \

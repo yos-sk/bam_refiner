@@ -467,18 +467,13 @@ fn process_read_alignments(
     counted_alignments
 }
 
-/// Distance between two placements in read coordinates. The main loop below uses
-/// the same measure to decide which segment a secondary alignment belongs to.
-fn read_span_distance(a: &RefineInfo, b: &RefineInfo) -> isize {
-    (a.read_start as isize - b.read_start as isize).abs()
-        + (a.read_end as isize - b.read_end as isize).abs()
-}
-
-/// Move a segment (a non-secondary alignment plus its competing secondaries) to
-/// hap1 when no placement overlaps a haplotype-specific k-mer, unless the anchor's
-/// AS beats the best hap1 candidate's by at least `as_margin` (a repeat
-/// copy-number change leaves no unique k-mer but does change AS). Missing AS
-/// falls back to the move. Returns true when at least one segment was swapped.
+/// Move an unsplit read (one non-secondary alignment plus its competing
+/// secondaries) to hap1 when no placement overlaps a haplotype-specific k-mer,
+/// unless the anchor's AS beats the best hap1 candidate's by at least `as_margin`
+/// (a repeat copy-number change leaves no unique k-mer but does change AS).
+/// Missing AS falls back to the move. Split reads are left where minimap2 put
+/// them: moving a marker-free segment to hap1 detaches it from the other
+/// segments and loses the SV breakpoint. Returns true when the read was swapped.
 fn prefer_hap1_where_indistinguishable(
     value: &mut Vec<RefineInfo>,
     hap1_set: &HashSet<String>,
@@ -487,72 +482,47 @@ fn prefer_hap1_where_indistinguishable(
     let anchors: Vec<usize> = (0..value.len())
         .filter(|&i| value[i].is_secondary == 0)
         .collect();
-    if anchors.is_empty() {
+    if anchors.len() != 1 {
         return false;
     }
+    let anchor = anchors[0];
 
-    // Assign every secondary to the segment whose read span is closest, as the
-    // main loop does.
-    let mut members: Vec<Vec<usize>> = anchors.iter().map(|&a| vec![a]).collect();
-    for i in 0..value.len() {
-        if value[i].is_secondary == 0 {
-            continue;
-        }
-        let mut best = 0;
-        let mut best_dist = isize::MAX;
-        for (g, &a) in anchors.iter().enumerate() {
-            let d = read_span_distance(&value[a], &value[i]);
-            if d < best_dist {
-                best_dist = d;
-                best = g;
-            }
-        }
-        members[best].push(i);
+    if value.len() < 2 {
+        return false;
     }
-
-    let mut swapped = false;
-    for (g, group) in members.iter().enumerate() {
-        let anchor = anchors[g];
-        if group.len() < 2 {
-            continue;
-        }
-        if group.iter().any(|&i| value[i].ref_kmer_cnt != 0) {
-            continue;
-        }
-        if hap1_set.contains(&value[anchor].reference_name) {
-            continue;
-        }
-        // hap1 placements in the (deterministically ordered) group.
-        let candidates: Vec<usize> = group
-            .iter()
-            .copied()
-            .filter(|&i| i != anchor && hap1_set.contains(&value[i].reference_name))
-            .collect();
-        if candidates.is_empty() {
-            continue;
-        }
-        // Best-scoring candidate; None ranks below any Some; ties keep the first.
-        let mut pick = candidates[0];
-        for &i in candidates.iter().skip(1) {
-            if value[i].alignment_score > value[pick].alignment_score {
-                pick = i;
-            }
-        }
-        // Keep the anchor when both scores are known and it clearly wins.
-        let keep_anchor = match (value[anchor].alignment_score, value[pick].alignment_score) {
-            (Some(anchor_as), Some(pick_as)) => anchor_as - pick_as >= as_margin,
-            _ => false,
-        };
-        if keep_anchor {
-            continue;
-        }
-        value[anchor].is_secondary = 1;
-        value[pick].is_secondary = 0;
-        value[pick].is_supplementary = value[anchor].is_supplementary;
-        value[anchor].is_supplementary = 0;
-        swapped = true;
+    if value.iter().any(|info| info.ref_kmer_cnt != 0) {
+        return false;
     }
-    swapped
+    if hap1_set.contains(&value[anchor].reference_name) {
+        return false;
+    }
+    // hap1 placements in the (deterministically ordered) read.
+    let candidates: Vec<usize> = (0..value.len())
+        .filter(|&i| i != anchor && hap1_set.contains(&value[i].reference_name))
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    // Best-scoring candidate; None ranks below any Some; ties keep the first.
+    let mut pick = candidates[0];
+    for &i in candidates.iter().skip(1) {
+        if value[i].alignment_score > value[pick].alignment_score {
+            pick = i;
+        }
+    }
+    // Keep the anchor when both scores are known and it clearly wins.
+    let keep_anchor = match (value[anchor].alignment_score, value[pick].alignment_score) {
+        (Some(anchor_as), Some(pick_as)) => anchor_as - pick_as >= as_margin,
+        _ => false,
+    };
+    if keep_anchor {
+        return false;
+    }
+    value[anchor].is_secondary = 1;
+    value[pick].is_secondary = 0;
+    value[pick].is_supplementary = value[anchor].is_supplementary;
+    value[anchor].is_supplementary = 0;
+    true
 }
 
 fn filter(
@@ -975,5 +945,34 @@ mod tests {
         assert_eq!(value[0].is_supplementary, 0);
         assert_eq!(value[1].is_secondary, 0);
         assert_eq!(value[1].is_supplementary, 1);
+    }
+
+    #[test]
+    fn split_read_stays_put() {
+        let hap1 = hap1_set();
+        let mut value = vec![
+            info("h2", 0, 100, 0, 0, 0, 0, Some(100)),
+            info("h2", 100, 200, 0, 1, 0, 0, Some(100)),
+            info("h1", 100, 200, 1, 0, 0, 0, Some(100)),
+        ];
+        assert!(!prefer_hap1_where_indistinguishable(&mut value, &hap1, 10));
+        assert_eq!(value[0].is_secondary, 0);
+        assert_eq!(value[1].is_secondary, 0);
+        assert_eq!(value[1].is_supplementary, 1);
+        assert_eq!(value[2].is_secondary, 1);
+    }
+
+    #[test]
+    fn split_read_supplementary_on_hap2_stays_put() {
+        let hap1 = hap1_set();
+        let mut value = vec![
+            info("h1", 0, 100, 0, 0, 0, 0, Some(100)),
+            info("h2", 100, 200, 0, 1, 0, 0, Some(100)),
+            info("h1", 100, 200, 1, 0, 0, 0, Some(100)),
+        ];
+        assert!(!prefer_hap1_where_indistinguishable(&mut value, &hap1, 10));
+        assert_eq!(value[1].reference_name, "h2");
+        assert_eq!(value[1].is_secondary, 0);
+        assert_eq!(value[2].is_secondary, 1);
     }
 }
