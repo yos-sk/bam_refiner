@@ -130,6 +130,7 @@ rather than splitting the BAM into per-job pieces beforehand.
     --threads 8 \
     --ratio-threshold 0.8 \
     --min-markers 3 \
+    --as-margin 10 \
     1>output.tsv 2>log
 ```
 
@@ -176,6 +177,20 @@ haplotype is called  <=>  max_kmer / (max_kmer + second_max_kmer) >= ratio_thres
 
 A placement failing either gate is left undetermined (`HP:i:0`), as is any tie between
 placements.
+
+##### Marker-free segments
+
+When no placement of a segment overlaps a haplotype-specific k-mer, the segment is moved
+to hap1 to keep the support for a somatic variant on one contig. But a repeat copy-number
+change also leaves no unique k-mer while still changing the alignment score, so a
+non-hap1 placement is kept instead when `AS(current) - AS(best hap1) >= as_margin`.
+`--as-margin` defaults to `10`: one mismatch costs 20 under `asm5` and 10 under `asm10`, so
+this keeps a real sequence difference on its own haplotype and moves only identical
+sequence. Records without an `AS` tag are moved.
+
+This applies only to unsplit reads. A split read (more than one primary/supplementary
+record) is left where minimap2 placed it: moving one marker-free segment to hap1 while the
+others stay on hap2 splits the read across contigs and hides the SV breakpoint it spans.
 
 #### Step 4: Sort refined bam file　
 ```

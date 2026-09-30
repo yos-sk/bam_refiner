@@ -18,6 +18,7 @@ pub struct RefineInfo {
     pub is_supplementary: usize,
     pub kmer_cnt: usize,
     pub ref_kmer_cnt: usize,
+    pub alignment_score: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -337,6 +338,19 @@ pub fn is_confident_placement(counts: &[usize], threshold: f64) -> bool {
         return false;
     }
     max as f64 / (max + second) as f64 >= threshold
+}
+
+/// Read an integer-valued aux tag (e.g. `AS`), or `None` on error.
+pub fn aux_integer(record: &bam::record::Record, tag: &[u8]) -> Option<i64> {
+    match record.aux(tag) {
+        Ok(bam::record::Aux::I8(v)) => Some(v as i64),
+        Ok(bam::record::Aux::U8(v)) => Some(v as i64),
+        Ok(bam::record::Aux::I16(v)) => Some(v as i64),
+        Ok(bam::record::Aux::U16(v)) => Some(v as i64),
+        Ok(bam::record::Aux::I32(v)) => Some(v as i64),
+        Ok(bam::record::Aux::U32(v)) => Some(v as i64),
+        _ => None,
+    }
 }
 
 pub fn open_file<P: AsRef<Path>>(p: P) -> Result<Box<dyn BufRead>, Box<dyn Error>> {

@@ -5,8 +5,9 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-while getopts "b:df:h:i:M:m:o:pR:s:t:u:" opt; do
+while getopts "A:b:df:h:i:M:m:o:pR:s:t:u:" opt; do
   case $opt in
+    A) AS_MARGIN=$OPTARG ;;
     b) INPUT_BAM=$OPTARG ;;
     d) DEBUG="true" ;;
     f) INPUT_FASTQ=$OPTARG ;;
@@ -55,6 +56,11 @@ fi
 if [ -z "${MIN_MARKERS:-}" ]; then
     echo "Minimum marker count is not given. It is set to default (3)"
     MIN_MARKERS=3
+fi
+
+if [ -z "${AS_MARGIN:-}" ]; then
+    echo "AS margin is not given. It is set to default (10)"
+    AS_MARGIN=10
 fi
 
 if [ -z "${SAMPLE:-}" ]; then
@@ -139,6 +145,7 @@ bam_refiner refine \
     --threads ${THREAD} \
     --ratio-threshold ${RATIO_THRESHOLD} \
     --min-markers ${MIN_MARKERS} \
+    --as-margin ${AS_MARGIN} \
     1>${OUTPUT_DIR}/bam_refiner_result.tsv 2>${OUTPUT_DIR}/bam_refiner.log
 
 samtools sort \

@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 #[derive(Parser)]
-#[command(author = "Yoshitaka Sakamoto", version = "0.4.0", about = "Refine alignments by unique kmers.", long_about = None)]
+#[command(author = "Yoshitaka Sakamoto", version = "0.4.1", about = "Refine alignments by unique kmers.", long_about = None)]
 struct Arguments {
     #[command(subcommand)]
     command: Commands,
@@ -80,6 +80,11 @@ enum Commands {
         /// unmatched. 1 disables the rule.
         #[clap(short = 'n', long, value_parser, default_value_t = 3)]
         min_markers: usize,
+
+        /// In marker-free segments, keep a non-hap1 placement instead of moving it
+        /// to hap1 when its AS beats the best hap1 placement's by at least this.
+        #[clap(short = 'a', long, value_parser, default_value_t = 10)]
+        as_margin: i64,
     },
 
     Single {
@@ -159,6 +164,7 @@ fn main() {
             threads,
             ratio_threshold,
             min_markers,
+            as_margin,
         } => {
             if let Err(error) = refine::run(
                 input_bam,
@@ -171,6 +177,7 @@ fn main() {
                 *threads,
                 *ratio_threshold,
                 *min_markers,
+                *as_margin,
             ) {
                 eprintln!("{}", error);
                 process::exit(1);
